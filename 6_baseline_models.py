@@ -107,24 +107,68 @@ class BaselineModelTrainer:
             print(f"   ✓ Churned:   {self.df['churn'].sum():,}")
             print(f"   ✓ Retained:  {(self.df['churn']==0).sum():,}")
 
-            # Validate churn rate is reasonable before training
-            n_classes = self.df['churn'].nunique()
-            if n_classes < 2:
-                print(f"\n❌ CRITICAL: churn column has only {n_classes} class(es).")
-                print("   This means Stage 3 produced an extreme churn definition.")
-                print("   Fix: re-run Stage 3 (3_churn_definition.py) — it will")
-                print("   auto-detect a better prediction date from your data.")
+            # Validate churn rate — auto-fix if extreme
+            n_classes  = self.df['churn'].nunique()
+            churn_rate = self.df['churn'].mean() * 100
+            if n_classes < 2 or churn_rate > 90 or churn_rate < 2:
+                print(f"\n⚠️  Churn rate {churn_rate:.1f}% is extreme — rebuilding from activity data...")
+                if not self._rebuild_churn():
+                    print("❌ Could not rebuild churn. Re-run Stages 3–5 manually.")
+                    return False
+                churn_rate = self.df['churn'].mean() * 100
+                print(f"   ✓ Rebuilt churn rate: {churn_rate:.2f}%")
+                print(f"   ✓ Churned : {self.df['churn'].sum():,}")
+                print(f"   ✓ Retained: {(self.df['churn']==0).sum():,}")
+
+            if churn_rate > 90 or churn_rate < 2:
+                print("❌ Churn rate still extreme after rebuild. Check your data.")
                 return False
-            if churn_rate > 90:
-                print(f"\n⚠️  WARNING: churn rate {churn_rate:.1f}% is very high.")
-                print("   Models may be unreliable. Consider re-running Stage 3.")
-            if churn_rate < 3:
-                print(f"\n⚠️  WARNING: churn rate {churn_rate:.1f}% is very low.")
-                print("   Models may struggle. Consider re-running Stage 3.")
             return True
 
         except FileNotFoundError as e:
             print(f"❌ {e}\n   Run Stage 4 first.")
+            return False
+
+    def _rebuild_churn(self) -> bool:
+        """
+        Rebuild churn labels directly from activity data.
+        Called when Stage 3/4 produced an extreme churn rate.
+        Churn = no flight activity in the last 6 months of the dataset.
+        """
+        try:
+            activity = pd.read_csv(Path("data/processed/activity_clean.csv"))
+            activity['activity_date'] = pd.to_datetime(activity['activity_date'])
+
+            max_date = activity['activity_date'].max()
+            cutoff   = max_date - pd.DateOffset(months=6)
+            last_act = activity.groupby('loyalty_number')['activity_date'].max()
+            churn_map = (last_act < cutoff).astype(int)
+
+            # Find the ID column in the feature dataframe
+            id_col = next(
+                (c for c in ['loyalty_number','customer_id'] if c in self.df.columns),
+                self.df.columns[0]
+            )
+            self.df['churn'] = (
+                self.df[id_col].map(churn_map).fillna(1).astype(int)
+            )
+
+            # Also apply hard churn if cancellation info is present
+            loyalty_path = Path("data/processed/loyalty_with_churn.csv")
+            if loyalty_path.exists():
+                loy = pd.read_csv(loyalty_path)
+                cancel_col = next(
+                    (c for c in loy.columns if 'cancel' in c.lower() and 'year' in c.lower()),
+                    None
+                )
+                if cancel_col:
+                    hard_map = loy.set_index('loyalty_number')[cancel_col].notna().astype(int)
+                    hard_col = self.df[id_col].map(hard_map).fillna(0).astype(int)
+                    self.df['churn'] = (self.df['churn'] | hard_col).astype(int)
+
+            return self.df['churn'].nunique() >= 2
+        except Exception as e:
+            print(f"   Rebuild error: {e}")
             return False
 
     # ─────────────────────────────────────────────
