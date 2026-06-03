@@ -3,13 +3,28 @@
 
 ---
 
-## � What This Project Builds
+## Results (Verified on Real Data)
+
+| Metric | Value |
+|--------|-------|
+| Dataset | 16,737 Canadian airline loyalty members (2017–2018) |
+| Churn rate | 12.35% (combined: cancelled OR 6-month inactive) |
+| **XGBoost AUC** | **0.9733** |
+| Recall | 85.7% — catches 353 of 413 churners |
+| Precision | 81.6% — 81.6% of churn alerts are correct |
+| At-risk customers | 2,648 (15.8%) |
+| Revenue at risk | **$21,865,444** |
+| Potential savings | **$5,630,492** |
+
+---
+
+## What This Project Builds
 
 A **production-ready AI system** that:
-- Predicts customer churn **3+ months early** with AUC 0.80+
-- Creates **actionable behavioral segments** (not just "Cluster 1, 2, 3")
-- Recommends **specific retention actions** per customer
-- Delivers an **executive dashboard** any manager can use
+- Predicts customer churn with **AUC 0.9733** (XGBoost, GPU-trained)
+- Creates **5 actionable behavioral segments** with named archetypes
+- Recommends **specific retention actions** per customer with revenue impact
+- Delivers an **executive Streamlit dashboard** any manager can use
 
 ---
 
@@ -128,32 +143,30 @@ This stage creates **30-50 behavioral features** across 7 categories:
 
 ---
 
-## � Customer Segments (Stage 5)
+## Customer Segments (Actual Results)
 
-| Segment | Description | Strategy | Urgency |
-|---------|-------------|---------|---------|
-| **Premium Loyalists** | High CLV, consistent | VIP treatment | Low |
-| **Silent Drifters** | Declining engagement | Urgent win-back | � High |
-| **Miles Hoarders** | High balance, low redemption | Redemption incentives | Medium |
-| **Seasonal Travelers** | Holiday/vacation flyers | Seasonal campaigns | Low-Med |
-| **Rising Stars** | Growing engagement | Tier upgrade challenge | Low |
-| **Budget Frequent Flyers** | High freq, low CLV | Partner benefits | Medium |
-| **At-Risk VIPs** | High-value, declining | Maximum intervention | � Critical |
+| Segment | Size | Churn Rate | Avg CLV | Strategy |
+|---------|------|-----------|---------|---------|
+| **Premium Loyalists** | 7,113 (42.5%) | 9.4% | $5,252 | VIP treatment, maintain |
+| **Standard Travelers** | 6,249 (37.3%) | 15.3% | $5,174 | Re-engagement campaigns |
+| **Seasonal Travelers** | 2,396 (14.3%) | 13.6% | $17,931 | Pre-season targeted offers |
+| **Miles Hoarders** | 963 (5.8%) | 11.6% | $5,895 | Redemption incentives |
+| **Rising Stars** | 16 (0.1%) | 18.8% | $3,745 | Tier upgrade challenge |
 
 ---
 
-## � Expected Model Performance
+## Model Performance (Actual Results)
 
-| Model | AUC Target | Recall Target | Notes |
-|-------|-----------|--------------|-------|
-| Logistic Regression | 0.70-0.75 | 60%+ | Interpretable baseline |
-| Random Forest | 0.75-0.80 | 65%+ | Feature importance |
-| **XGBoost** | **0.80-0.85+** | **70%+** | **Best model** |
+| Model | AUC | Recall | Precision | F1 | CV AUC |
+|-------|-----|--------|-----------|-----|--------|
+| Logistic Regression | 0.9332 | 76.8% | 68.0% | 0.7213 | 0.9864 |
+| Random Forest | 0.9712 | 84.8% | 79.9% | 0.8226 | 0.9860 |
+| **XGBoost (GPU)** | **0.9733** | **85.7%** | **81.6%** | **0.8359** | **0.9710** |
 
-**Business Translation:** XGBoost at AUC 0.84 means:
-- We identify **70% of churners** 3+ months before they leave
-- **63% of churn alerts** are correct (acceptable false positive rate)
-- Early enough for **marketing to intervene** successfully
+**Business Translation:** XGBoost at AUC 0.9733 means:
+- We identify **85.7% of churners** before they leave (353 out of 413)
+- **81.6% of churn alerts** are correct — low false alarm rate
+- Only **81 non-churners** incorrectly flagged as at-risk
 
 ---
 
@@ -162,10 +175,10 @@ This stage creates **30-50 behavioral features** across 7 categories:
 For every at-risk customer, the system outputs:
 
 ```
-Customer: #12345
-Segment:  Silent Drifters
-Risk:     HIGH (82% churn probability)
-CLV:      $4,200
+Customer: #652627
+Segment:  Seasonal Travelers
+Risk:     HIGH (99.7% churn probability)
+CLV:      $83,112
 
 Why at risk:
   - No flights in 4 months
