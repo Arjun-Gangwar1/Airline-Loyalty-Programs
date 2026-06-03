@@ -1,42 +1,27 @@
-# Core Data Science
-pandas==2.2.2
-numpy==1.26.4
-scipy==1.13.1
+# Data Processing
+pandas==2.0.3
+numpy==1.24.3
+scipy==1.11.1
 
 # Visualization
-matplotlib==3.9.0
-seaborn==0.13.2
-plotly==5.22.0
+matplotlib==3.7.2
+seaborn==0.12.2
+plotly==5.15.0
 
 # Machine Learning
-scikit-learn==1.5.0
-xgboost==2.0.3
-lightgbm==4.3.0
-
-# Imbalanced Data
-imbalanced-learn==0.12.3
+scikit-learn==1.3.0
+xgboost==1.7.6
+lightgbm==4.0.0
+imbalanced-learn==0.11.0
 
 # Dashboard
-streamlit==1.35.0
-
-# Explainability
-shap==0.45.1
-
-# Notebook
-jupyter==1.0.0
-notebook==7.2.0
+streamlit==1.25.0
 
 # Utilities
-openpyxl==3.1.5
-python-dateutil==2.9.0
-tqdm==4.66.4
-joblib==1.4.2
-pyyaml==6.0.1
+openpyxl==3.1.2
+python-dateutil==2.8.2
+tqdm==4.65.0
+joblib==1.3.1
 
-# Optional Advanced
-torch==2.3.1
-
-
-# Install Everything
-# run in terminal 
-# pip install -r requirements.txt
+# Explainability
+shap==0.42.1
