@@ -303,6 +303,18 @@ class BaselineModelTrainer:
 
         print("   Why: Best performance on tabular data, handles imbalance natively")
 
+        # Auto-detect GPU
+        import subprocess as _sp
+        try:
+            _sp.check_output(['nvidia-smi'], stderr=_sp.DEVNULL)
+            device    = 'cuda'
+            tree_method = 'hist'
+            print("   🚀 GPU detected — training on CUDA")
+        except Exception:
+            device    = 'cpu'
+            tree_method = 'hist'
+            print("   💻 No GPU — training on CPU")
+
         # Scale pos weight to handle imbalance
         neg = (self.y_train == 0).sum()
         pos = (self.y_train == 1).sum()
@@ -315,7 +327,8 @@ class BaselineModelTrainer:
             subsample=0.8,
             colsample_bytree=0.8,
             scale_pos_weight=scale_pos,
-            use_label_encoder=False,
+            device=device,
+            tree_method=tree_method,
             eval_metric='auc',
             random_state=42,
             n_jobs=-1
