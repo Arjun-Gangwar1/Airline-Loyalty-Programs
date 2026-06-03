@@ -101,9 +101,16 @@ class DataCleaner:
                     'count': int(missing_count)
                 })
         
-        # For numerical columns, fill with median
+        # Cancellation columns must stay NaN — NaN means "not cancelled"
+        # Never impute these with median, it would mark everyone as cancelled
+        KEEP_NULL_COLS = {'cancellation_year', 'cancellation_month',
+                          'Cancellation Year', 'Cancellation Month'}
+
+        # For numerical columns, fill with median (skip cancellation columns)
         numerical_cols = df.select_dtypes(include=[np.number]).columns
         for col in numerical_cols:
+            if col in KEEP_NULL_COLS:
+                continue   # intentionally keep NaN — absence means not cancelled
             if df[col].isnull().sum() > 0:
                 missing_count = df[col].isnull().sum()
                 median_val = df[col].median()

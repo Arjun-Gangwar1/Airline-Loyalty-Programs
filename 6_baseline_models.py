@@ -132,43 +132,52 @@ class BaselineModelTrainer:
     def _rebuild_churn(self) -> bool:
         """
         Rebuild churn labels directly from activity data.
-        Called when Stage 3/4 produced an extreme churn rate.
         Churn = no flight activity in the last 6 months of the dataset.
+        NOTE: deliberately does NOT use loyalty_with_churn.csv because
+        Stage 2 median-imputes cancellation_year, which corrupts hard_churn.
         """
         try:
-            activity = pd.read_csv(Path("data/processed/activity_clean.csv"))
+            act_path = Path("data/processed/activity_clean.csv")
+            if not act_path.exists():
+                print(f"   ✗ {act_path} not found — run Stage 2 first.")
+                return False
+
+            activity = pd.read_csv(act_path)
             activity['activity_date'] = pd.to_datetime(activity['activity_date'])
 
-            max_date = activity['activity_date'].max()
-            cutoff   = max_date - pd.DateOffset(months=6)
-            last_act = activity.groupby('loyalty_number')['activity_date'].max()
+            max_date  = activity['activity_date'].max()
+            cutoff    = max_date - pd.DateOffset(months=6)
+            last_act  = activity.groupby('loyalty_number')['activity_date'].max()
             churn_map = (last_act < cutoff).astype(int)
 
-            # Find the ID column in the feature dataframe
+            print(f"   Activity data ends : {max_date.date()}")
+            print(f"   Churn cutoff       : {cutoff.date()} (no flights after = churned)")
+            print(f"   Inactive customers : {(last_act < cutoff).sum():,}")
+
             id_col = next(
-                (c for c in ['loyalty_number','customer_id'] if c in self.df.columns),
-                self.df.columns[0]
+                (c for c in ['loyalty_number', 'customer_id'] if c in self.df.columns),
+                None
             )
+            if id_col is None:
+                print("   ✗ No loyalty_number column found in feature matrix.")
+                return False
+
+            # Pure activity-based churn — no loyalty file (it may be contaminated)
             self.df['churn'] = (
                 self.df[id_col].map(churn_map).fillna(1).astype(int)
             )
 
-            # Also apply hard churn if cancellation info is present
-            loyalty_path = Path("data/processed/loyalty_with_churn.csv")
-            if loyalty_path.exists():
-                loy = pd.read_csv(loyalty_path)
-                cancel_col = next(
-                    (c for c in loy.columns if 'cancel' in c.lower() and 'year' in c.lower()),
-                    None
-                )
-                if cancel_col:
-                    hard_map = loy.set_index('loyalty_number')[cancel_col].notna().astype(int)
-                    hard_col = self.df[id_col].map(hard_map).fillna(0).astype(int)
-                    self.df['churn'] = (self.df['churn'] | hard_col).astype(int)
+            n_classes = self.df['churn'].nunique()
+            if n_classes < 2:
+                print(f"   ✗ Still only {n_classes} class after rebuild.")
+                return False
 
-            return self.df['churn'].nunique() >= 2
+            return True
+
         except Exception as e:
-            print(f"   Rebuild error: {e}")
+            import traceback
+            print(f"   ✗ Rebuild error: {e}")
+            traceback.print_exc()
             return False
 
     # ─────────────────────────────────────────────
