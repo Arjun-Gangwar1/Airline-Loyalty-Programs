@@ -32,8 +32,8 @@ warnings.filterwarnings('ignore')
 sns.set_style("whitegrid")
 plt.rcParams['figure.figsize'] = (14, 8)
 
-# ── Constants ────────────────────────────────────────────────────────────────
-PREDICTION_DATE = pd.Timestamp('2017-12-31')   # prediction cutoff
+# PREDICTION_DATE is auto-detected from data in load_data() below.
+PREDICTION_DATE = pd.Timestamp('2017-12-31')   # default — overridden at runtime
 
 TIER_MAP       = {'Star': 1, 'Aurora': 2, 'Nova': 3}
 EDUCATION_MAP  = {
@@ -69,6 +69,8 @@ class FeatureEngineer:
     # ── 1. Load data ─────────────────────────────────────────────────────────
 
     def load_data(self):
+        global PREDICTION_DATE
+
         print("\n" + "=" * 60)
         print("STAGE 4: FEATURE ENGINEERING")
         print("=" * 60)
@@ -80,11 +82,55 @@ class FeatureEngineer:
             self.activity['activity_date'] = pd.to_datetime(self.activity['activity_date'])
             print(f"   ✓ Loyalty:  {self.loyalty.shape}")
             print(f"   ✓ Activity: {self.activity.shape}")
+
+            # Auto-detect prediction date: max activity date minus 3 months
+            max_date = self.activity['activity_date'].max()
+            PREDICTION_DATE = max_date - pd.DateOffset(months=3)
+            print(f"   ✓ Prediction date (auto): {PREDICTION_DATE.date()}")
+            print(f"   ✓ Activity data ends    : {max_date.date()}")
+
+            # Validate churn column from Stage 3
+            churn_col = next((c for c in ['churn', 'churned'] if c in self.loyalty.columns), None)
+            if churn_col and churn_col != 'churn':
+                self.loyalty = self.loyalty.rename(columns={churn_col: 'churn'})
+
+            if 'churn' in self.loyalty.columns:
+                churn_rate = self.loyalty['churn'].mean()
+                n_classes  = self.loyalty['churn'].nunique()
+                print(f"   ✓ Churn rate (Stage 3) : {churn_rate*100:.1f}%")
+                if n_classes < 2 or churn_rate > 0.90 or churn_rate < 0.02:
+                    print(f"\n⚠️  Stage 3 churn rate is extreme ({churn_rate*100:.1f}%).")
+                    print("   Building fallback churn definition from activity data...")
+                    self.loyalty['churn'] = self._fallback_churn()
+                    print(f"   ✓ Fallback churn rate  : {self.loyalty['churn'].mean()*100:.2f}%")
+
             return True
         except FileNotFoundError as e:
             print(f"\n❌ ERROR: {e}")
             print("   Please run 02_data_cleaning.py and 03_churn_definition.py first.")
             return False
+
+    def _fallback_churn(self) -> pd.Series:
+        """
+        Self-healing churn definition used when Stage 3 output is extreme.
+        Churned = no flight activity in the last 6 months of the dataset.
+        """
+        max_date  = self.activity['activity_date'].max()
+        cutoff    = max_date - pd.DateOffset(months=6)
+        last_act  = self.activity.groupby('loyalty_number')['activity_date'].max()
+        churn_map = (last_act < cutoff).astype(int)
+
+        # Also include hard churn (explicit cancellations) if column exists
+        cancel_cols = [c for c in self.loyalty.columns if 'cancel' in c.lower() and 'year' in c.lower()]
+        hard_churn  = self.loyalty['loyalty_number'].map(
+            self.loyalty.set_index('loyalty_number')[cancel_cols[0]].notna().astype(int)
+            if cancel_cols else pd.Series(0, index=self.loyalty.index)
+        ).fillna(0).astype(int)
+
+        churn_series = (
+            self.loyalty['loyalty_number'].map(churn_map).fillna(1).astype(int) | hard_churn
+        ).astype(int)
+        return churn_series
 
     # ── 2. Flight behavior features ──────────────────────────────────────────
 
@@ -260,7 +306,9 @@ class FeatureEngineer:
         feat = feat.fillna(0)
         feat['engagement_health_score'] = self._engagement_health_score(feat)
 
+        churn_rate = feat['churn'].mean() * 100 if 'churn' in feat.columns else 0
         print(f"\n✅ Final feature matrix: {feat.shape[0]:,} customers × {feat.shape[1]} features")
+        print(f"   Churn rate in feature matrix: {churn_rate:.2f}%")
         return feat
 
     def save_features(self, features: pd.DataFrame):
