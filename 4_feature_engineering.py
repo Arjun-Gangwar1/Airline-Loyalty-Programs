@@ -1,23 +1,22 @@
 """
-STAGE 3: CHURN DEFINITION FRAMEWORK
-===================================
+STAGE 4: FEATURE ENGINEERING
+=============================
 
-This is THE MOST CRITICAL stage. Your churn definition determines everything.
+Builds the feature matrix for churn prediction from cleaned loyalty +
+flight activity data.
 
 CHECKPOINT: After this stage, you'll have:
-✅ Multiple churn definitions tested
-✅ Comparison analysis
-✅ Temporal leakage validation
-✅ Final churn labels
-✅ Business justification documented
+✅ 40+ behavioral features per customer
+✅ Flight behavior metrics (frequency, consistency, momentum)
+✅ Points / engagement metrics (redemption rate, earn-burn ratio)
+✅ Recency & tenure features
+✅ Encoded categorical features
+✅ Composite engagement health score
 
-Can safely stop after this stage and resume with Stage 4.
-
-Expected Time: 30-40 minutes
+Expected Time: 20-30 minutes
 Expected Outputs:
-- churn_labels.csv (final labels)
-- churn_comparison.csv (definition comparison)
-- churn_definition_report.json (justification)
+- data/final/customer_features.csv  (full feature matrix)
+- outputs/figures/features/         (correlation heatmap + importance preview)
 """
 
 import pandas as pd
@@ -30,565 +29,348 @@ from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
 
-# Set style
 sns.set_style("whitegrid")
-plt.rcParams['figure.figsize'] = (12, 6)
+plt.rcParams['figure.figsize'] = (14, 8)
 
-class ChurnDefinitionFramework:
+# ── Constants ────────────────────────────────────────────────────────────────
+PREDICTION_DATE = pd.Timestamp('2017-12-31')   # prediction cutoff
+
+TIER_MAP       = {'Star': 1, 'Aurora': 2, 'Nova': 3}
+EDUCATION_MAP  = {
+    'High School or Below': 1,
+    'College': 2,
+    'Bachelor': 3,
+    'Master': 4,
+    'Doctor': 5,
+}
+
+
+class FeatureEngineer:
     """
-    Comprehensive framework for defining and validating churn
+    Build a 40+ feature matrix from cleaned loyalty + activity data.
+
+    Feature groups:
+      1. Flight behavior  — frequency, consistency, momentum
+      2. Distance         — total & average travel distance
+      3. Points           — earn, burn, balance, redemption rate
+      4. Recency          — last activity, months silent
+      5. Tenure           — loyalty program seniority
+      6. Engagement       — composite health score (0-100)
+      7. Demographics     — encoded card tier, education, gender
     """
-    
-    def __init__(self, prediction_date='2017-12-31'):
+
+    def __init__(self):
         self.processed_path = Path("data/processed")
-        self.output_path = Path("outputs/figures/churn")
-        self.output_path.mkdir(parents=True, exist_ok=True)
-        
-        # CRITICAL: Prediction date - only use data BEFORE this
-        self.prediction_date = pd.Timestamp(prediction_date)
-        
-        self.definitions = {}
-        self.comparison = []
-        
-    def load_cleaned_data(self):
-        """Load data from Stage 2 checkpoint"""
-        
+        self.final_path     = Path("data/final")
+        self.fig_path       = Path("outputs/figures/features")
+        self.final_path.mkdir(parents=True, exist_ok=True)
+        self.fig_path.mkdir(parents=True, exist_ok=True)
+
+    # ── 1. Load data ─────────────────────────────────────────────────────────
+
+    def load_data(self):
         print("\n" + "=" * 60)
-        print("STAGE 3: CHURN DEFINITION FRAMEWORK")
+        print("STAGE 4: FEATURE ENGINEERING")
         print("=" * 60)
-        
-        print("\n� Loading cleaned data from Stage 2...")
-        
+
+        print("\n📂 Loading cleaned data from Stage 2 & 3...")
         try:
-            self.loyalty = pd.read_csv(self.processed_path / 'loyalty_clean.csv')
+            self.loyalty  = pd.read_csv(self.processed_path / 'loyalty_with_churn.csv')
             self.activity = pd.read_csv(self.processed_path / 'activity_clean.csv')
-            print(f"   ✓ Loyalty: {self.loyalty.shape}")
+            self.activity['activity_date'] = pd.to_datetime(self.activity['activity_date'])
+            print(f"   ✓ Loyalty:  {self.loyalty.shape}")
             print(f"   ✓ Activity: {self.activity.shape}")
-            
-            # Convert dates
-            # Use activity_date column (year+month already combined in cleaning)
-            date_cols = [col for col in self.activity.columns if col == "activity_date"]
-            if not date_cols:
-                self.activity["activity_date"] = pd.to_datetime(
-                    {"year": self.activity["year"], "month": self.activity["month"], "day": 1}
-                )
-            self.activity["activity_date"] = pd.to_datetime(self.activity["activity_date"])
-            self.date_col = "activity_date"
-            # Find ID column
-            id_cols = [col for col in self.loyalty.columns if 'loyalty' in col and 'number' in col]
-            self.id_col = id_cols[0] if id_cols else 'loyalty_number'
-            
-            print(f"\n⚙️  Configuration:")
-            print(f"   Prediction Date: {self.prediction_date.date()}")
-            print(f"   Data Range: {self.activity[self.date_col].min().date()} to {self.activity[self.date_col].max().date()}")
-            print(f"   ID Column: {self.id_col}")
-            
             return True
-            
-        except FileNotFoundError:
-            print("\n❌ ERROR: Stage 2 checkpoint not found!")
-            print("   Please run 02_data_cleaning.py first.")
+        except FileNotFoundError as e:
+            print(f"\n❌ ERROR: {e}")
+            print("   Please run 02_data_cleaning.py and 03_churn_definition.py first.")
             return False
-    
-    def define_hard_churn(self):
-        """
-        DEFINITION 1: HARD CHURN
-        Customer explicitly cancelled membership
-        """
-        
-        print("\n" + "=" * 60)
-        print("DEFINITION 1: HARD CHURN (Explicit Cancellation)")
-        print("=" * 60)
-        
-        # Find cancellation column
-        cancel_cols = [col for col in self.loyalty.columns if 'cancel' in col.lower()]
-        
-        if not cancel_cols:
-            print("\n⚠️  No cancellation column found. Skipping hard churn.")
-            return None
-        
-        cancel_col = cancel_cols[0]
-        print(f"\nUsing column: {cancel_col}")
-        
-        # Create hard churn label
-        self.loyalty['hard_churn'] = self.loyalty[cancel_col].notna().astype(int)
-        
-        churn_count = self.loyalty['hard_churn'].sum()
-        churn_rate = (churn_count / len(self.loyalty)) * 100
-        
-        print(f"\n� Results:")
-        print(f"   Churned: {churn_count:,} ({churn_rate:.2f}%)")
-        print(f"   Retained: {len(self.loyalty) - churn_count:,} ({100-churn_rate:.2f}%)")
-        
-        print(f"\n✅ Pros:")
-        print(f"   • Clear ground truth")
-        print(f"   • Unambiguous")
-        print(f"   • Directly actionable")
-        
-        print(f"\n⚠️  Cons:")
-        print(f"   • Misses silent churners (inactive but not cancelled)")
-        print(f"   • Only captures ~30-50% of actual disengagement")
-        print(f"   • Cancellation is END state, not early warning")
-        
-        self.definitions['hard_churn'] = {
-            'label': self.loyalty['hard_churn'],
-            'count': int(churn_count),
-            'rate': float(churn_rate),
-            'description': 'Explicit membership cancellation'
-        }
-        
-        self.comparison.append({
-            'Definition': 'Hard Churn',
-            'Churned': int(churn_count),
-            'Rate (%)': f"{churn_rate:.2f}",
-            'Description': 'Explicit cancellation'
-        })
-        
-        return self.loyalty['hard_churn']
-    
-    def define_activity_churn(self, months_inactive=12):
-        """
-        DEFINITION 2: ACTIVITY CHURN
-        No flight activity for X months before prediction date
-        """
-        
-        print("\n" + "=" * 60)
-        print(f"DEFINITION 2: ACTIVITY CHURN ({months_inactive}-Month Inactivity)")
-        print("=" * 60)
-        
-        # Calculate last activity for each customer (BEFORE prediction date)
-        historical_activity = self.activity[
-            self.activity[self.date_col] <= self.prediction_date
-        ]
-        
-        print(f"\nUsing activity data up to: {self.prediction_date.date()}")
-        print(f"Historical records: {len(historical_activity):,}")
-        
-        last_activity = historical_activity.groupby(self.id_col)[self.date_col].max()
-        
-        # Define cutoff date
-        cutoff_date = self.prediction_date - pd.DateOffset(months=months_inactive)
-        print(f"Cutoff date: {cutoff_date.date()}")
-        print(f"Customers with no activity after this date = churned")
-        
-        # Merge with loyalty
-        last_activity_df = pd.DataFrame({
-            self.id_col: last_activity.index,
-            'last_activity_date': last_activity.values
-        })
-        
-        if 'last_activity_date' in self.loyalty.columns:
-            self.loyalty = self.loyalty.drop(columns=["last_activity_date"])
-        self.loyalty = self.loyalty.merge(last_activity_df, on=self.id_col, how='left')
 
-        # Define churn
-        self.loyalty[f'activity_churn_{months_inactive}m'] = (
-            (self.loyalty['last_activity_date'] < cutoff_date) |
-            (self.loyalty['last_activity_date'].isna())
-        ).astype(int)
-        
-        churn_count = self.loyalty[f'activity_churn_{months_inactive}m'].sum()
-        churn_rate = (churn_count / len(self.loyalty)) * 100
-        
-        print(f"\n� Results:")
-        print(f"   Churned: {churn_count:,} ({churn_rate:.2f}%)")
-        print(f"   Retained: {len(self.loyalty) - churn_count:,} ({100-churn_rate:.2f}%)")
-        print(f"   No activity records: {self.loyalty['last_activity_date'].isna().sum():,}")
-        
-        print(f"\n✅ Pros:")
-        print(f"   • Captures silent churners")
-        print(f"   • More complete view of disengagement")
-        print(f"   • Actionable before formal cancellation")
-        
-        print(f"\n⚠️  Cons:")
-        print(f"   • May have false positives (seasonal travelers)")
-        print(f"   • {months_inactive}-month threshold is somewhat arbitrary")
-        print(f"   • Some customers may return after breaks")
-        
-        self.definitions[f'activity_churn_{months_inactive}m'] = {
-            'label': self.loyalty[f'activity_churn_{months_inactive}m'],
-            'count': int(churn_count),
-            'rate': float(churn_rate),
-            'description': f'No flights for {months_inactive} months'
-        }
-        
-        self.comparison.append({
-            'Definition': f'Activity Churn ({months_inactive}m)',
-            'Churned': int(churn_count),
-            'Rate (%)': f"{churn_rate:.2f}",
-            'Description': f'No activity {months_inactive} months'
-        })
-        
-        return self.loyalty[f'activity_churn_{months_inactive}m']
-    
-    def define_combined_churn(self):
-        """
-        DEFINITION 3: COMBINED CHURN (RECOMMENDED)
-        Customer churned if EITHER cancelled OR inactive for 12 months
-        """
-        
+    # ── 2. Flight behavior features ──────────────────────────────────────────
+
+    def _flight_features(self) -> pd.DataFrame:
+        print("\n✈️  Building flight behavior features...")
+        grp = self.activity.groupby('loyalty_number')
+
+        flights = grp['total_flights'].sum().rename('total_flights')
+        dist    = grp['distance'].sum().rename('total_distance')
+        months  = grp['activity_date'].nunique().rename('active_months')
+
+        # months actually recorded in the dataset per customer
+        months_recorded = (
+            self.activity.groupby('loyalty_number')
+            .apply(lambda x: (x['year'].max() - x['year'].min()) * 12 + x['month'].max())
+            .rename('months_recorded')
+        )
+
+        df = pd.concat([flights, dist, months, months_recorded], axis=1).reset_index()
+
+        df['avg_flights_per_month']  = df['total_flights']  / df['active_months'].clip(lower=1)
+        df['avg_distance_per_month'] = df['total_distance'] / df['active_months'].clip(lower=1)
+        df['active_month_ratio']     = df['active_months']  / df['months_recorded'].clip(lower=1)
+
+        # Per-customer std of monthly flights (consistency)
+        std_df = (
+            self.activity.groupby('loyalty_number')['total_flights']
+            .agg(['max', 'std'])
+            .rename(columns={'max': 'max_flights_month', 'std': 'flight_std'})
+            .fillna(0)
+            .reset_index()
+        )
+        df = df.merge(std_df, on='loyalty_number', how='left')
+        df['flight_consistency'] = np.where(
+            df['avg_flights_per_month'] > 0,
+            1 - (df['flight_std'] / df['avg_flights_per_month'].clip(lower=0.01)).clip(0, 1),
+            0
+        )
+
+        print(f"   ✓ {len(df):,} customers | {df.shape[1]-1} flight features")
+        return df
+
+    # ── 3. Points / engagement features ─────────────────────────────────────
+
+    def _points_features(self) -> pd.DataFrame:
+        print("💎 Building points & engagement features...")
+        grp = self.activity.groupby('loyalty_number')
+
+        earned   = grp['points_accumulated'].sum().rename('total_points_accumulated')
+        redeemed = grp['points_redeemed'].sum().rename('total_points_redeemed')
+        avg_pts  = (earned / self.activity.groupby('loyalty_number')
+                    ['activity_date'].nunique().clip(lower=1)).rename('avg_points_per_month')
+
+        df = pd.concat([earned, redeemed, avg_pts], axis=1).reset_index()
+        df['redemption_rate'] = (
+            df['total_points_redeemed'] /
+            df['total_points_accumulated'].clip(lower=1)
+        ).clip(0, 1)
+        df['points_balance'] = (df['total_points_accumulated'] -
+                                df['total_points_redeemed']).clip(lower=0)
+
+        print(f"   ✓ {df.shape[1]-1} points features")
+        return df
+
+    # ── 4. Recency features ──────────────────────────────────────────────────
+
+    def _recency_features(self) -> pd.DataFrame:
+        print("🕐 Building recency features...")
+        last_date = (
+            self.activity.groupby('loyalty_number')['activity_date']
+            .max()
+            .rename('last_date')
+        )
+        df = last_date.reset_index()
+        df['recency_months'] = (
+            (PREDICTION_DATE - df['last_date']) / pd.Timedelta(days=30.44)
+        ).clip(lower=0).round(1)
+        df['last_active_month'] = df['last_date'].dt.month
+        df = df.drop(columns=['last_date'])
+        print(f"   ✓ {df.shape[1]-1} recency features")
+        return df
+
+    # ── 5. Momentum features ─────────────────────────────────────────────────
+
+    def _momentum_features(self) -> pd.DataFrame:
+        print("📈 Building momentum features...")
+        act = self.activity.copy()
+
+        y2017 = act[act['year'] == 2017].groupby('loyalty_number')['total_flights'].sum()
+        y2018 = act[act['year'] == 2018].groupby('loyalty_number')['total_flights'].sum()
+        q4    = act[act['month'].isin([10, 11, 12])].groupby('loyalty_number')['total_flights'].sum()
+
+        all_ids = self.loyalty['loyalty_number']
+        df = pd.DataFrame({'loyalty_number': all_ids})
+        df['flights_2017']         = df['loyalty_number'].map(y2017).fillna(0)
+        df['flights_2018']         = df['loyalty_number'].map(y2018).fillna(0)
+        df['momentum_h2_minus_h1'] = df['flights_2018'] - df['flights_2017']
+        df['q4_flights']           = df['loyalty_number'].map(q4).fillna(0)
+        print(f"   ✓ {df.shape[1]-1} momentum features")
+        return df.drop(columns=['flights_2017', 'flights_2018'])
+
+    # ── 6. Loyalty / tenure features ─────────────────────────────────────────
+
+    def _loyalty_features(self) -> pd.DataFrame:
+        print("🎖️  Building loyalty & demographic features...")
+        df = self.loyalty[[
+            'loyalty_number', 'gender', 'education', 'salary', 'marital_status',
+            'loyalty_card', 'clv', 'clv_log', 'enrollment_type',
+            'enrollment_year', 'enrollment_month', 'churn',
+        ]].copy()
+
+        # Salary missing flag
+        df['salary_missing'] = df['salary'].isna().astype(int)
+        df['salary'] = df['salary'].fillna(df['salary'].median())
+
+        # Tenure in months from enrollment to prediction date
+        df['enrollment_date_num'] = (
+            df['enrollment_year'] * 12 + df['enrollment_month']
+        )
+        pred_num = PREDICTION_DATE.year * 12 + PREDICTION_DATE.month
+        df['tenure_months'] = (pred_num - df['enrollment_date_num']).clip(lower=0)
+
+        # Encode categoricals
+        df['tier_numeric']       = df['loyalty_card'].map(TIER_MAP).fillna(1).astype(int)
+        df['education_numeric']  = df['education'].map(EDUCATION_MAP).fillna(2).astype(int)
+        df['is_female']          = (df['gender'].str.lower() == 'female').astype(int)
+        df['is_married']         = (df['marital_status'].str.lower() == 'married').astype(int)
+        df['is_promo_enrollment']= (df['enrollment_type'].str.lower() == '2018 promotion').astype(int)
+        df['has_high_clv']       = (df['clv'] > df['clv'].quantile(0.75)).astype(int)
+
+        print(f"   ✓ {df.shape[1]-1} loyalty/demographic features")
+        return df
+
+    # ── 7. Engagement health score ────────────────────────────────────────────
+
+    def _engagement_health_score(self, features: pd.DataFrame) -> pd.Series:
+        """Composite score 0–100 combining recency, activity, consistency, redemption."""
+        score = pd.Series(0.0, index=features.index)
+
+        if 'recency_months' in features.columns:
+            # 0 months away = 25 points, 24+ months = 0 points
+            score += (1 - (features['recency_months'].clip(0, 24) / 24)) * 25
+
+        if 'active_month_ratio' in features.columns:
+            score += features['active_month_ratio'].clip(0, 1) * 25
+
+        if 'flight_consistency' in features.columns:
+            score += features['flight_consistency'].clip(0, 1) * 25
+
+        if 'redemption_rate' in features.columns:
+            score += features['redemption_rate'].clip(0, 1) * 25
+
+        return score.clip(0, 100).rename('engagement_health_score')
+
+    # ── 8. Merge & save ───────────────────────────────────────────────────────
+
+    def build_features(self) -> pd.DataFrame:
         print("\n" + "=" * 60)
-        print("DEFINITION 3: COMBINED CHURN (RECOMMENDED)")
+        print("BUILDING FEATURE MATRIX")
         print("=" * 60)
-        
-        print("\nCombining:")
-        print("   • Hard Churn (explicit cancellation)")
-        print("   • Activity Churn (12-month inactivity)")
-        
-        # Combine with OR logic
-        self.loyalty['churn'] = (
-            (self.loyalty.get('hard_churn', 0) == 1) |
-            (self.loyalty.get('activity_churn_12m', 0) == 1)
-        ).astype(int)
-        
-        churn_count = self.loyalty['churn'].sum()
-        churn_rate = (churn_count / len(self.loyalty)) * 100
-        
-        print(f"\n� Results:")
-        print(f"   Churned: {churn_count:,} ({churn_rate:.2f}%)")
-        print(f"   Retained: {len(self.loyalty) - churn_count:,} ({100-churn_rate:.2f}%)")
-        
-        # Breakdown
-        hard_only = (self.loyalty.get('hard_churn', 0) == 1) & (self.loyalty.get('activity_churn_12m', 0) == 0)
-        activity_only = (self.loyalty.get('hard_churn', 0) == 0) & (self.loyalty.get('activity_churn_12m', 0) == 1)
-        both = (self.loyalty.get('hard_churn', 0) == 1) & (self.loyalty.get('activity_churn_12m', 0) == 1)
-        
-        print(f"\n� Breakdown:")
-        print(f"   Hard churn only: {hard_only.sum():,}")
-        print(f"   Activity churn only: {activity_only.sum():,}")
-        print(f"   Both: {both.sum():,}")
-        
-        print(f"\n✅ Pros:")
-        print(f"   • Most comprehensive view")
-        print(f"   • Captures both explicit and silent churn")
-        print(f"   • Business-realistic")
-        print(f"   • Minimizes false negatives")
-        
-        print(f"\n⚠️  Cons:")
-        print(f"   • May have more false positives")
-        print(f"   • Higher churn rate (more challenging prediction)")
-        
-        self.definitions['combined_churn'] = {
-            'label': self.loyalty['churn'],
-            'count': int(churn_count),
-            'rate': float(churn_rate),
-            'description': 'Cancelled OR 12-month inactive'
-        }
-        
-        self.comparison.append({
-            'Definition': 'Combined Churn',
-            'Churned': int(churn_count),
-            'Rate (%)': f"{churn_rate:.2f}",
-            'Description': 'Cancellation OR inactivity'
-        })
-        
-        return self.loyalty['churn']
-    
-    def compare_definitions(self):
-        """Compare all churn definitions side-by-side"""
-        
-        print("\n" + "=" * 60)
-        print("CHURN DEFINITION COMPARISON")
-        print("=" * 60)
-        
-        comparison_df = pd.DataFrame(self.comparison)
-        print("\n", comparison_df.to_string(index=False))
-        
-        # Save comparison
-        comparison_file = self.processed_path / 'churn_comparison.csv'
-        comparison_df.to_csv(comparison_file, index=False)
-        print(f"\n✓ Saved comparison: {comparison_file}")
-        
-        # Visualize comparison
-        fig, axes = plt.subplots(1, 2, figsize=(15, 5))
-        
-        # Bar chart of churn counts
-        axes[0].bar(comparison_df['Definition'], comparison_df['Churned'], alpha=0.7, color='steelblue')
-        axes[0].set_title('Churned Customers by Definition', fontsize=12, fontweight='bold')
-        axes[0].set_xlabel('Definition')
-        axes[0].set_ylabel('Churned Customers')
-        axes[0].tick_params(axis='x', rotation=45)
+
+        loyalty_df  = self._loyalty_features()
+        flight_df   = self._flight_features()
+        points_df   = self._points_features()
+        recency_df  = self._recency_features()
+        momentum_df = self._momentum_features()
+
+        # Merge everything on loyalty_number
+        feat = loyalty_df.copy()
+        for df in [flight_df, points_df, recency_df, momentum_df]:
+            feat = feat.merge(df, on='loyalty_number', how='left')
+
+        feat = feat.fillna(0)
+        feat['engagement_health_score'] = self._engagement_health_score(feat)
+
+        print(f"\n✅ Final feature matrix: {feat.shape[0]:,} customers × {feat.shape[1]} features")
+        return feat
+
+    def save_features(self, features: pd.DataFrame):
+        features.to_csv(self.final_path / 'customer_features.csv', index=False)
+        print(f"✓ Saved: data/final/customer_features.csv")
+
+    # ── 9. Visualise feature correlations ────────────────────────────────────
+
+    def plot_correlation_heatmap(self, features: pd.DataFrame):
+        numeric_cols = [c for c in features.select_dtypes(include=np.number).columns
+                        if c not in ('loyalty_number',)]
+        corr = features[numeric_cols].corr()
+        churn_corr = corr['churn'].drop('churn').sort_values(key=abs, ascending=False).head(15)
+
+        fig, axes = plt.subplots(1, 2, figsize=(18, 7))
+
+        # Top 15 features correlated with churn
+        colors = ['#e74c3c' if v > 0 else '#3498db' for v in churn_corr.values]
+        axes[0].barh(churn_corr.index[::-1], churn_corr.values[::-1], color=colors[::-1], alpha=0.8)
+        axes[0].axvline(0, color='black', linewidth=0.8)
+        axes[0].set_title('Top 15 Features Correlated with Churn', fontweight='bold')
+        axes[0].set_xlabel('Pearson Correlation')
         axes[0].grid(True, alpha=0.3)
-        
-        # Pie chart showing percentages
-        rates = [float(x.replace('%', '')) for x in comparison_df['Rate (%)']]
-        axes[1].pie(comparison_df['Churned'], labels=comparison_df['Definition'], 
-                   autopct='%1.1f%%', startangle=90)
-        axes[1].set_title('Churn Distribution', fontsize=12, fontweight='bold')
-        
-        plt.tight_layout()
-        plt.savefig(self.output_path / 'churn_definition_comparison.png', dpi=300, bbox_inches='tight')
-        plt.close()
-        print(f"✓ Saved visualization: churn_definition_comparison.png")
-        
-        return comparison_df
-    
-    def check_temporal_leakage(self):
-        """
-        CRITICAL: Check if definition causes data leakage
-        """
-        
-        print("\n" + "=" * 60)
-        print("⚠️  TEMPORAL LEAKAGE VALIDATION")
-        print("=" * 60)
-        
-        print(f"\nPrediction point: {self.prediction_date.date()}")
-        print("Checking if churn labels use only past information...")
-        
-        # Check: customers labeled as churned should have no activity after churn date
-        churned_customers = self.loyalty[self.loyalty['churn'] == 1][self.id_col]
-        
-        print(f"\nTesting {min(100, len(churned_customers))} churned customers...")
-        
-        leakage_issues = 0
-        for customer_id in churned_customers.head(100):
-            customer_activity = self.activity[self.activity[self.id_col] == customer_id]
-            
-            # Activity after prediction date
-            future_activity = customer_activity[customer_activity[self.date_col] > self.prediction_date]
-            
-            if len(future_activity) > 0:
-                leakage_issues += 1
-        
-        if leakage_issues > 0:
-            print(f"\n⚠️  WARNING: {leakage_issues}/100 churned customers have activity AFTER prediction date")
-            print(f"   This suggests potential leakage, but is expected if:")
-            print(f"   • They cancelled after having activity")
-            print(f"   • Activity churn captures customers active in 2018 but churned by definition")
-        else:
-            print(f"\n✅ No obvious leakage detected in sample")
-        
-        print(f"\n✅ Temporal validation complete")
-        print(f"   All features will use ONLY data before {self.prediction_date.date()}")
-    
-    def visualize_churn_by_segments(self):
-        """Visualize churn across different customer segments"""
-        
-        print("\n" + "=" * 60)
-        print("CHURN BY CUSTOMER SEGMENTS")
-        print("=" * 60)
-        
-        # Find tier/card column
-        tier_cols = [col for col in self.loyalty.columns if 'tier' in col.lower() or 'card' in col.lower()]
-        
-        if not tier_cols:
-            print("\n⚠️  No tier/card column found. Skipping segment analysis.")
-            return
-        
-        tier_col = tier_cols[0]
-        
-        # Churn by tier
-        tier_churn = self.loyalty.groupby(tier_col)['churn'].agg(['sum', 'count', 'mean'])
-        tier_churn.columns = ['Churned', 'Total', 'Rate']
-        tier_churn['Rate'] = tier_churn['Rate'] * 100
-        
-        print(f"\nChurn by {tier_col}:")
-        print(tier_churn)
-        
-        # Visualize
-        fig, axes = plt.subplots(1, 2, figsize=(15, 5))
-        
-        # Bar chart
-        tier_churn['Rate'].plot(kind='bar', ax=axes[0], color='coral', alpha=0.7)
-        axes[0].set_title(f'Churn Rate by {tier_col}', fontsize=12, fontweight='bold')
-        axes[0].set_xlabel(tier_col)
-        axes[0].set_ylabel('Churn Rate (%)')
-        axes[0].tick_params(axis='x', rotation=45)
-        axes[0].grid(True, alpha=0.3)
-        
-        # Stacked bar
-        tier_summary = self.loyalty.groupby([tier_col, 'churn']).size().unstack(fill_value=0)
-        tier_summary.plot(kind='bar', stacked=True, ax=axes[1], color=['steelblue', 'coral'])
-        axes[1].set_title(f'Customer Distribution by {tier_col}', fontsize=12, fontweight='bold')
-        axes[1].set_xlabel(tier_col)
-        axes[1].set_ylabel('Customers')
-        axes[1].legend(['Retained', 'Churned'])
+
+        # Full correlation heatmap (top 15 features)
+        top_feats = churn_corr.index.tolist() + ['churn']
+        sns.heatmap(
+            features[top_feats].corr(),
+            ax=axes[1], cmap='RdBu_r', center=0,
+            annot=True, fmt='.2f', annot_kws={'size': 7},
+            square=True, linewidths=0.5
+        )
+        axes[1].set_title('Correlation Heatmap — Top Features', fontweight='bold')
         axes[1].tick_params(axis='x', rotation=45)
-        
+
         plt.tight_layout()
-        plt.savefig(self.output_path / 'churn_by_segments.png', dpi=300, bbox_inches='tight')
+        plt.savefig(self.fig_path / 'feature_correlations.png', dpi=300, bbox_inches='tight')
         plt.close()
-        print(f"\n✓ Saved: churn_by_segments.png")
-    
-    def document_recommendation(self):
-        """Document final churn definition recommendation"""
-        
+        print("✓ Saved: outputs/figures/features/feature_correlations.png")
+
+    def print_feature_summary(self, features: pd.DataFrame):
         print("\n" + "=" * 60)
-        print("� FINAL RECOMMENDATION")
+        print("FEATURE SUMMARY")
         print("=" * 60)
-        
-        recommendation = """
-╔══════════════════════════════════════════════════════════════╗
-║                 RECOMMENDED CHURN DEFINITION                  ║
-╠══════════════════════════════════════════════════════════════╣
-║                                                               ║
-║  COMBINED CHURN DEFINITION:                                  ║
-║                                                               ║
-║  A customer is defined as CHURNED if:                        ║
-║                                                               ║
-║    • They formally CANCELLED their membership                ║
-║                   OR                                          ║
-║    • They had NO FLIGHT ACTIVITY for 12 months               ║
-║      before the prediction date                              ║
-║                                                               ║
-╠══════════════════════════════════════════════════════════════╣
-║  BUSINESS JUSTIFICATION:                                     ║
-║                                                               ║
-║  1. Captures both explicit and silent churn                  ║
-║  2. Reflects real airline business reality                   ║
-║  3. Provides early intervention window (12 months)           ║
-║  4. Defensible to non-technical stakeholders                 ║
-║  5. Industry-realistic churn rate (40-60% typical)           ║
-║                                                               ║
-╠══════════════════════════════════════════════════════════════╣
-║  WHY NOT HARD CHURN ONLY?                                   ║
-║  • Misses 50%+ of disengaged customers                      ║
-║  • Silent churners still enrolled but generate no value     ║
-║                                                               ║
-║  WHY 12 MONTHS?                                              ║
-║  • Balances false positives vs early detection              ║
-║  • Gives marketing sufficient intervention time             ║
-║  • Industry standard for airline inactivity                  ║
-╚══════════════════════════════════════════════════════════════╝
-"""
-        
-        print(recommendation)
-        
-        # Save detailed report
-        report = {
-            'churn_definition': 'combined',
-            'criteria': {
-                'hard_churn': 'Explicit membership cancellation',
-                'activity_churn': 'No flight activity for 12 months',
-                'operator': 'OR'
-            },
-            'prediction_date': str(self.prediction_date.date()),
-            'results': {
-                'total_customers': int(len(self.loyalty)),
-                'churned_customers': int(self.loyalty['churn'].sum()),
-                'churn_rate': float((self.loyalty['churn'].mean() * 100))
-            },
-            'justification': {
-                'business_alignment': 'Captures both explicit and silent churn',
-                'intervention_window': '12 months provides actionable early warning',
-                'industry_relevance': 'Aligns with airline loyalty best practices',
-                'stakeholder_clarity': 'Simple to explain to non-technical managers'
-            },
-            'temporal_safety': {
-                'features_use_data_before': str(self.prediction_date.date()),
-                'labels_represent_status_after': str(self.prediction_date.date()),
-                'leakage_prevented': True
-            },
-            'comparison_with_alternatives': {
-                def_name: {k: (v.tolist() if hasattr(v, 'tolist') else
-                               (int(v) if hasattr(v, 'item') else v))
-                           for k, v in def_data.items()}
-                for def_name, def_data in self.definitions.items()
-            }
+        groups = {
+            'Flight Behavior':   ['total_flights', 'avg_flights_per_month', 'flight_consistency',
+                                  'active_month_ratio', 'max_flights_month'],
+            'Distance':          ['total_distance', 'avg_distance_per_month'],
+            'Points/Engagement': ['total_points_accumulated', 'total_points_redeemed',
+                                  'redemption_rate', 'points_balance'],
+            'Recency':           ['recency_months', 'last_active_month'],
+            'Momentum':          ['momentum_h2_minus_h1', 'q4_flights'],
+            'Demographics':      ['tier_numeric', 'clv', 'clv_log', 'tenure_months',
+                                  'engagement_health_score'],
         }
+        total = 0
+        for group, cols in groups.items():
+            present = [c for c in cols if c in features.columns]
+            total += len(present)
+            print(f"\n  {group} ({len(present)} features):")
+            for col in present:
+                mean = features[col].mean()
+                print(f"    • {col:<35} mean={mean:.3f}")
+        print(f"\n  Total features: {features.shape[1]-1} (excluding loyalty_number)")
+        print(f"  Churn rate:     {features['churn'].mean()*100:.2f}%")
+        print(f"  Customers:      {len(features):,}")
 
-        def make_serializable(obj):
-            if hasattr(obj, 'tolist'):
-                return obj.tolist()
-            if hasattr(obj, 'item'):
-                return obj.item()
-            if isinstance(obj, dict):
-                return {k: make_serializable(v) for k, v in obj.items()}
-            if isinstance(obj, list):
-                return [make_serializable(i) for i in obj]
-            return obj
+    # ── Full pipeline ─────────────────────────────────────────────────────────
 
-        report_file = self.processed_path / 'churn_definition_report.json'
-        with open(report_file, 'w') as f:
-            json.dump(make_serializable(report), f, indent=2)
-
-        print(f"\n✓ Saved detailed report: {report_file}")
-
-    def save_final_labels(self):
-        """Save final churn labels for modeling"""
-        
-        print("\n" + "=" * 60)
-        print("4. SAVING FINAL LABELS")
-        print("=" * 60)
-        
-        # Create final labels dataset
-        labels = self.loyalty[[self.id_col, 'churn']].copy()
-        
-        # Save
-        labels_file = self.processed_path / 'churn_labels.csv'
-        labels.to_csv(labels_file, index=False)
-        
-        print(f"\n✓ Saved: {labels_file}")
-        print(f"   Total customers: {len(labels):,}")
-        print(f"   Churned: {labels['churn'].sum():,} ({labels['churn'].mean()*100:.2f}%)")
-        print(f"   Retained: {(labels['churn']==0).sum():,} ({(1-labels['churn'].mean())*100:.2f}%)")
-        
-        # Save full loyalty dataset with churn
-        loyalty_file = self.processed_path / 'loyalty_with_churn.csv'
-        self.loyalty.to_csv(loyalty_file, index=False)
-        print(f"✓ Saved: {loyalty_file}")
-        
-        # Update progress
-        progress_file = Path("checkpoints/progress.json")
-        with open(progress_file, 'r') as f:
-            progress = json.load(f)
-        
-        progress['current_stage'] = 3
-        if 3 not in progress['completed_stages']:
-            progress['completed_stages'].append(3)
-        progress['last_updated'] = datetime.now().isoformat()
-        
-        with open(progress_file, 'w') as f:
-            json.dump(progress, f, indent=2)
-        
-        print("✓ Progress updated")
-    
-    def run_churn_definition_pipeline(self):
-        """Execute complete churn definition pipeline"""
-        
-        # Load data
-        if not self.load_cleaned_data():
+    def run_feature_engineering_pipeline(self):
+        if not self.load_data():
             return False
-        
-        # Create all definitions
-        self.define_hard_churn()
-        self.define_activity_churn(months_inactive=12)
-        self.define_activity_churn(months_inactive=6)  # Alternative threshold
-        self.define_combined_churn()
-        
-        # Analyze
-        self.compare_definitions()
-        self.check_temporal_leakage()
-        self.visualize_churn_by_segments()
-        self.document_recommendation()
-        self.save_final_labels()
-        
+
+        features = self.build_features()
+        self.save_features(features)
+        self.plot_correlation_heatmap(features)
+        self.print_feature_summary(features)
+
+        # Update progress checkpoint
+        progress_file = Path("checkpoints/progress.json")
+        if progress_file.exists():
+            with open(progress_file) as f:
+                progress = json.load(f)
+            progress['current_stage'] = 4
+            if 4 not in progress.get('completed_stages', []):
+                progress.setdefault('completed_stages', []).append(4)
+            progress['last_updated'] = datetime.now().isoformat()
+            with open(progress_file, 'w') as f:
+                json.dump(progress, f, indent=2)
+
         print("\n" + "=" * 60)
-        print("✅ STAGE 3 COMPLETE")
+        print("✅ STAGE 4 COMPLETE")
         print("=" * 60)
-        print(f"\n� Final Churn Definition: COMBINED")
-        print(f"   Churn Rate: {(self.loyalty['churn'].mean()*100):.2f}%")
-        print(f"   Prediction Date: {self.prediction_date.date()}")
-        print(f"\n� Outputs:")
-        print(f"   - churn_labels.csv (final labels)")
-        print(f"   - churn_comparison.csv (definition comparison)")
-        print(f"   - churn_definition_report.json (full justification)")
-        print(f"   - Visualizations in outputs/figures/churn/")
-        print(f"\n� Next Step: Run 04_feature_engineering.py")
-        
+        print(f"\n📊 Feature Matrix:")
+        print(f"   {len(features):,} customers × {features.shape[1]} features")
+        print(f"\n📁 Outputs:")
+        print(f"   - data/final/customer_features.csv")
+        print(f"   - outputs/figures/features/feature_correlations.png")
+        print(f"\n➡️  Next Step: Run 05_customer_segmentation.py")
         return True
 
+
 def main():
-    """Run Stage 3"""
-    
-    framework = ChurnDefinitionFramework(prediction_date='2017-12-31')
-    success = framework.run_churn_definition_pipeline()
-    
+    engineer = FeatureEngineer()
+    success  = engineer.run_feature_engineering_pipeline()
     if not success:
-        print("\n❌ Stage 3 failed. Please check errors above.")
+        print("\n❌ Stage 4 failed. Please check errors above.")
         return 1
-    
     return 0
+
 
 if __name__ == "__main__":
     exit(main())
