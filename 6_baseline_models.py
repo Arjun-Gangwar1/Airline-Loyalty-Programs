@@ -95,6 +95,9 @@ class BaselineModelTrainer:
             self.df = pd.read_csv(fp)
             print(f"   ✓ Loaded: {self.df.shape}")
 
+            # Accept 'churn' or 'churned' column
+            if 'churn' not in self.df.columns and 'churned' in self.df.columns:
+                self.df = self.df.rename(columns={'churned': 'churn'})
             if 'churn' not in self.df.columns:
                 print("❌ 'churn' column missing. Run Stage 3 first.")
                 return False
@@ -103,6 +106,21 @@ class BaselineModelTrainer:
             print(f"   ✓ Overall churn rate: {churn_rate:.2f}%")
             print(f"   ✓ Churned:   {self.df['churn'].sum():,}")
             print(f"   ✓ Retained:  {(self.df['churn']==0).sum():,}")
+
+            # Validate churn rate is reasonable before training
+            n_classes = self.df['churn'].nunique()
+            if n_classes < 2:
+                print(f"\n❌ CRITICAL: churn column has only {n_classes} class(es).")
+                print("   This means Stage 3 produced an extreme churn definition.")
+                print("   Fix: re-run Stage 3 (3_churn_definition.py) — it will")
+                print("   auto-detect a better prediction date from your data.")
+                return False
+            if churn_rate > 90:
+                print(f"\n⚠️  WARNING: churn rate {churn_rate:.1f}% is very high.")
+                print("   Models may be unreliable. Consider re-running Stage 3.")
+            if churn_rate < 3:
+                print(f"\n⚠️  WARNING: churn rate {churn_rate:.1f}% is very low.")
+                print("   Models may struggle. Consider re-running Stage 3.")
             return True
 
         except FileNotFoundError as e:

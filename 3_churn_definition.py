@@ -234,12 +234,17 @@ class ChurnDefinitionFramework:
         
         print("\nCombining:")
         print("   • Hard Churn (explicit cancellation)")
-        print("   • Activity Churn (12-month inactivity)")
-        
+        print("   • Activity Churn (6-month inactivity — primary threshold)")
+
+        # Use 6m as primary threshold; fall back to 12m if 6m column missing
+        activity_col = ('activity_churn_6m'
+                        if 'activity_churn_6m' in self.loyalty.columns
+                        else 'activity_churn_12m')
+
         # Combine with OR logic
         self.loyalty['churn'] = (
             (self.loyalty.get('hard_churn', 0) == 1) |
-            (self.loyalty.get('activity_churn_12m', 0) == 1)
+            (self.loyalty.get(activity_col, 0) == 1)
         ).astype(int)
         
         churn_count = self.loyalty['churn'].sum()
@@ -553,9 +558,21 @@ class ChurnDefinitionFramework:
         
         # Create all definitions
         self.define_hard_churn()
-        self.define_activity_churn(months_inactive=12)
-        self.define_activity_churn(months_inactive=6)  # Alternative threshold
+        self.define_activity_churn(months_inactive=6)   # 6-month threshold
+        self.define_activity_churn(months_inactive=12)  # 12-month alternative
         self.define_combined_churn()
+
+        # Sanity-check: if >90% or <2% churn, the definition is too extreme
+        churn_rate = self.loyalty['churn'].mean()
+        if churn_rate > 0.90:
+            print(f"\n⚠️  WARNING: churn rate is {churn_rate*100:.1f}% — too high.")
+            print("   Falling back to hard-churn-only definition.")
+            self.loyalty['churn'] = self.loyalty.get('hard_churn',
+                                                      pd.Series(0, index=self.loyalty.index))
+            print(f"   Revised churn rate: {self.loyalty['churn'].mean()*100:.2f}%")
+        elif churn_rate < 0.02:
+            print(f"\n⚠️  WARNING: churn rate is {churn_rate*100:.1f}% — too low.")
+            print("   Combined definition may need a longer inactivity window.")
         
         # Analyze
         self.compare_definitions()
@@ -581,8 +598,22 @@ class ChurnDefinitionFramework:
 
 def main():
     """Run Stage 3"""
-    
-    framework = ChurnDefinitionFramework(prediction_date='2017-12-31')
+
+    # Auto-detect a sensible prediction date from the activity data.
+    # Use (max_date - 3 months) so we always have a meaningful
+    # "future" window regardless of the dataset's time range.
+    try:
+        _act = pd.read_csv('data/processed/activity_clean.csv')
+        _act['activity_date'] = pd.to_datetime(_act['activity_date'])
+        _max = _act['activity_date'].max()
+        _pred_date = (_max - pd.DateOffset(months=3)).strftime('%Y-%m-%d')
+        print(f"\n📅 Auto-detected prediction date: {_pred_date}")
+        print(f"   (activity data ends: {_max.date()})")
+    except Exception:
+        _pred_date = '2017-12-31'
+        print(f"\n📅 Using default prediction date: {_pred_date}")
+
+    framework = ChurnDefinitionFramework(prediction_date=_pred_date)
     success = framework.run_churn_definition_pipeline()
     
     if not success:
