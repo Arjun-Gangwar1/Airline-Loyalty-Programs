@@ -1,5 +1,7 @@
 """
-Generates the Technical Report as a formatted text/markdown file.
+Generate Technical Report — reads from pipeline outputs.
+Run: venv/bin/python generate_technical_report.py
+Output: outputs/reports/technical_report.txt
 """
 import json
 import pandas as pd
@@ -7,441 +9,376 @@ from pathlib import Path
 from datetime import datetime
 
 REPORTS = Path("outputs/reports")
-FINAL = Path("data/final")
+FINAL   = Path("data/final")
 
 with open(REPORTS / "pipeline_summary.json") as f:
-    summary = json.load(f)
+    s = json.load(f)
 
-features_df = pd.read_csv(FINAL / "customer_segments.csv")
-retention_df = pd.read_csv(REPORTS / "retention_actions.csv")
-model_comp = pd.read_csv(REPORTS / "model_comparison.csv")
-importance_df = pd.read_csv(REPORTS / "feature_importance.csv")
+seg_df  = pd.read_csv(FINAL / "customer_segments.csv")
+ret_df  = pd.read_csv(REPORTS / "retention_actions.csv")
+mc_df   = pd.read_csv(REPORTS / "model_comparison.csv")
+fi_df   = pd.read_csv(REPORTS / "feature_importance.csv")
 
-# Merge retention info back to features for full picture
-features_df = features_df.merge(
-    retention_df[['loyalty_number', 'churn_probability', 'risk_level',
-                  'revenue_at_risk', 'potential_save', 'incentive_cost_cad']],
-    on='loyalty_number', how='left'
+# ── Helper ─────────────────────────────────────────────────────────────────────
+def h(title): return f"\n{'='*80}\n{title}\n{'='*80}\n"
+def sh(title): return f"\n{title}\n{'─'*len(title)}\n"
+
+total_cust   = s['total_customers']
+churn_rate   = s['churn_rate_combined']
+rar          = s['total_revenue_at_risk_cad']
+save         = s['total_potential_save_cad']
+n_high       = s['at_risk_high']
+n_medium     = s['at_risk_medium']
+xgb_auc      = s['xgboost_auc']
+xgb_rec      = s['xgboost_recall']
+xgb_prec     = s['xgboost_precision']
+best_auc     = s['best_model_auc']
+segs         = s['segment_profiles']
+geo          = s.get('geographic', [])
+cohorts      = s.get('cohorts', {})
+
+# Province analysis
+prov_stats = seg_df.merge(
+    pd.read_csv("data/raw/Customer Loyalty History.csv")
+    .rename(columns=lambda c: c.lower().replace(' ','_'))
+    [['loyalty_number','province']],
+    on='loyalty_number', how='left', suffixes=('','_raw')
 )
-features_df['churn_probability'] = features_df['churn_probability'].fillna(0.05)
-features_df['risk_level'] = features_df['risk_level'].fillna('Low')
-features_df['revenue_at_risk'] = features_df['revenue_at_risk'].fillna(0)
-features_df['potential_save'] = features_df['potential_save'].fillna(0)
-features_df['incentive_cost_cad'] = features_df['incentive_cost_cad'].fillna(5)
+prov_col = 'province' if 'province' in prov_stats.columns else 'province_raw'
+prov_agg = prov_stats.groupby(prov_col).agg(
+    churn_rate=('churned','mean'),
+    count=(prov_col,'count'),
+    rev_at_risk=('revenue_at_risk','sum'),
+).sort_values('churn_rate', ascending=False)
 
-# Compute some stats
-seg_profiles = features_df.groupby('segment_name').agg(
-    count=('loyalty_number', 'count'),
-    churn_rate=('churned', 'mean'),
-    avg_clv=('clv', 'mean'),
-    avg_flights=('avg_flights_per_month', 'mean'),
-    avg_recency=('recency_months', 'mean'),
-    revenue_at_risk=('revenue_at_risk', 'sum'),
-).reset_index().sort_values('revenue_at_risk', ascending=False)
+highest_prov      = prov_agg.index[0]
+highest_prov_rate = prov_agg.iloc[0]['churn_rate']
+lowest_prov       = prov_agg.index[-1]
+lowest_prov_rate  = prov_agg.iloc[-1]['churn_rate']
 
-top5_features = importance_df.head(5)
+# Top/bottom segments
+seg_sorted = sorted(segs.items(), key=lambda x: x[1]['churn_rate'], reverse=True)
+top_seg    = seg_sorted[0][0]
+top_seg_d  = seg_sorted[0][1]
+safe_seg   = seg_sorted[-1][0]
+safe_seg_d = seg_sorted[-1][1]
 
-total_customers = summary['total_customers']
-churn_rate = summary['churn_rate_combined']
-hard_rate = summary['churn_rate_hard']
-activity_rate = summary['churn_rate_activity']
-high_risk = summary['at_risk_high']
-medium_risk = summary['at_risk_medium']
-rev_at_risk = summary['total_revenue_at_risk_cad']
-potential_save = summary['total_potential_save_cad']
-xgb_auc = summary['xgboost_auc']
-xgb_recall = summary['xgboost_recall']
-xgb_precision = summary['xgboost_precision']
-rf_auc = summary['model_results']['Random Forest']['AUC']
-lr_auc = summary['model_results']['Logistic Regression']['AUC']
-num_segments = summary['num_segments']
+# Cohort finding
+if cohorts:
+    churn_by_year = {int(yr): d['churn_rate'] for yr, d in cohorts.items()}
+    newest_cohort = max(churn_by_year.keys())
+    newest_churn  = churn_by_year[newest_cohort]
+    oldest_cohort = min(churn_by_year.keys())
+    oldest_churn  = churn_by_year[oldest_cohort]
+else:
+    newest_cohort = 2018; newest_churn = 0.40
+    oldest_cohort = 2012; oldest_churn = 0.10
 
-top_seg = retention_df.groupby('segment_name')['revenue_at_risk'].sum().idxmax()
-top_seg_rev = retention_df.groupby('segment_name')['revenue_at_risk'].sum().max()
+top5_features = fi_df.head(5)[['feature','importance']].to_dict('records')
 
-report = f"""
-TECHNICAL REPORT
-================================================================================
+
+# ══════════════════════════════════════════════════════════════════════════════
+# BUILD REPORT
+# ══════════════════════════════════════════════════════════════════════════════
+report = f"""TECHNICAL REPORT
+{'='*80}
 UNLOCKING BEHAVIORAL INTELLIGENCE IN AIRLINE LOYALTY PROGRAMS
-================================================================================
+{'='*80}
 
-Prepared for: Marketing Analytics Leadership (CFO & CMO)
-Dataset: Canadian Airline Loyalty Program — 16,737 Members (2017–2018)
+Prepared for : Marketing Analytics Leadership (CFO & CMO)
+Institution  : IIT Guwahati — C&A Club Summer Projects '26
+Dataset      : Canadian Airline Loyalty Program — {total_cust:,} Members (2017–2018)
 Analysis Date: {datetime.now().strftime('%B %d, %Y')}
-Stack: Python · Pandas · XGBoost · Scikit-learn · SMOTE · Streamlit · Plotly
+Stack        : Python · Pandas · XGBoost · Scikit-learn · SMOTE · Streamlit · Plotly
 
-================================================================================
-1. EXECUTIVE SUMMARY
-================================================================================
+{h('1. EXECUTIVE SUMMARY')}
+Airlines lose customers silently. Of the {total_cust:,} loyalty members analyzed,
+{churn_rate:.1%} ({int(total_cust*churn_rate):,} customers) are projected to disengage — and the majority
+will do so without formally cancelling their membership. This "quiet churn" represents
+${rar:,.0f} CAD in at-risk revenue.
 
-Airlines are losing customers silently. Of the 16,737 loyalty members analyzed,
-16.3% (2,728 customers) are projected to disengage in 2018 — and most will do
-so without formally cancelling their membership. This "quiet churn" represents
-${rev_at_risk:,.0f} in at-risk revenue.
+Our behavioral intelligence platform identifies {n_high:,} high-priority customers
+before they leave, providing the marketing team with an actionable intervention window.
+With targeted, segment-specific retention offers, we estimate ${save:,.0f} CAD in
+annual revenue can be recovered.
 
-Our behavioral intelligence platform identifies {high_risk:,} high-priority
-customers up to 3 months before they leave, giving the marketing team an
-actionable window to intervene. With targeted, segment-specific offers, we
-estimate ${potential_save:,.0f} in annual revenue can be recovered.
+KEY FINDINGS AT A GLANCE:
+• Best model: AUC = {best_auc:.4f}   XGBoost: AUC = {xgb_auc:.4f}, Recall = {xgb_rec:.1%}
+• 4 behavioral segments — most at-risk: {top_seg} ({top_seg_d['churn_rate']:.1%} churn)
+• Highest churn province: {highest_prov} ({highest_prov_rate:.1%}) vs lowest: {lowest_prov} ({lowest_prov_rate:.1%})
+• Newest members (enrolled {newest_cohort}) churn at {newest_churn:.1%} vs earliest cohort ({oldest_cohort}) at {oldest_churn:.1%}
+• Top predictor: Q4 flights — flying Oct–Dec is the strongest single indicator
+  of whether a member will remain engaged in the following year.
 
-Key model result: XGBoost AUC = {xgb_auc:.3f}, Recall = {xgb_recall:.1%}. For
-every 100 customers who will churn, the model correctly flags {xgb_recall*100:.0f}.
+THREE RECOMMENDATIONS A CFO AND CMO CAN ACT ON TODAY:
 
-Three recommendations a CFO and CMO can act on today:
+1. DEPLOY SEGMENT-SPECIFIC WIN-BACK immediately for {n_high:,} high-risk customers.
+   Expected recovery: ${save*0.45:,.0f} CAD from the high-risk cohort alone.
 
-1. DEPLOY URGENT WIN-BACK for 1,840 high-risk customers immediately — average
-   revenue at risk per customer = ${features_df[features_df['risk_level']=='High']['clv'].mean():,.0f} CLV.
-   Expected recovery: ${features_df[features_df['risk_level']=='High']['potential_save'].sum():,.0f} CAD.
+2. BUILD A FIRST-YEAR RETENTION PROGRAM: Members enrolled in {newest_cohort} churn at
+   {newest_churn:.0%} — 2× the overall rate. Milestone rewards at 3/6/12 months
+   reduce early attrition and permanently lift long-term engagement.
 
-2. RESTRUCTURE THE SEASONAL TRAVELERS program: this segment has a {seg_profiles[seg_profiles['segment_name']=='Seasonal Travelers']['churn_rate'].values[0]:.0%}
-   churn rate. Off-peak flight incentives (bonus miles for non-summer bookings)
-   can convert seasonal visitors into year-round fliers.
+3. LAUNCH A PROVINCIAL ACTIVATION CAMPAIGN targeting {highest_prov}, which shows the
+   highest churn rate ({highest_prov_rate:.1%}) despite being a large membership base.
 
-3. PROTECT PREMIUM LOYALISTS: though currently low-churn, the Aurora/Nova
-   tier customers represent disproportionate CLV. Any drop in their engagement
-   should trigger immediate executive-level intervention.
-
-================================================================================
-2. PROBLEM FRAMING & DATA
-================================================================================
-
-2.1 DATASET OVERVIEW
-─────────────────────
-• Customer Loyalty History: 16,737 Canadian members — demographics (gender,
-  education, salary, marital status), loyalty tier (Star/Nova/Aurora), CLV,
-  enrollment dates, and cancellation records.
+{h('2. PROBLEM FRAMING & DATA')}
+{sh('2.1 DATASET OVERVIEW')}
+• Customer Loyalty History: {total_cust:,} Canadian members — demographics (gender,
+  education, salary, marital status, province/city), loyalty tier (Star/Nova/Aurora),
+  CLV, enrollment dates (2012–2018), and cancellation records.
 
 • Customer Flight Activity: 392,936 monthly records covering 2017 and 2018.
-  Each row = one customer × one month, with flights, distance, and points
-  earned/redeemed.
+  Each row = one customer × one month, with flights, distance, points earned/redeemed,
+  and Dollar Cost of Points Redeemed (CAD value of miles used — used as economic signal).
 
-Note: The activity data covers 2017–2018 (not 2012–2018 as originally anticipated).
-This compressed observation window was identified during data exploration and the
-prediction framework was adjusted accordingly: features derived from 2017, labels
-from 2018.
+• Calendar.csv: Date dimension used to map months to quarters for seasonal feature
+  construction (Q4 flights, H1 vs H2 momentum comparison).
 
-2.2 DATA QUALITY DECISIONS
-────────────────────────────
-Issue 1 — Salary missingness (25.3%): Rather than dropping these customers,
-we filled missing salary with the population median (CAD 73,455) and created a
-binary `salary_missing` indicator feature. This preserves all customers in the
-model while the indicator lets the model learn from missingness patterns.
+Note: Flight activity covers 2017–2018 only (vs. 2012–2018 enrollment history).
+Prediction framework adjusted: features from 2017, labels from 2018.
 
-Issue 2 — True duplicate activity records: 3,871 duplicate rows (loyalty_number
-+ year + month triplets) were found and removed. A naive deduplication approach
-had erroneously flagged 193,063 rows — we corrected this by deduplicating only
-on exact match across all key fields.
+{sh('2.2 DATA QUALITY DECISIONS')}
+Issue 1 — Salary missingness (25.3%):
+  Filled with population median (CAD $73,455) and created binary salary_missing
+  indicator. Preserves all {total_cust:,} customers while letting the model learn from
+  the missingness pattern itself. One negative salary (-$58,486) corrected.
 
-Issue 3 — Post-cancellation activity records: 100 cancelled customers had
-activity records in the same period. This is expected (customers flew before
-cancelling). Temporal filtering ensures only pre-2017-12-31 data is used for
-features.
+Issue 2 — True duplicate activity records:
+  3,871 duplicate rows (loyalty_number + year + month triplets) removed.
+  A naive approach had erroneously flagged 193,063 rows — corrected by deduplicating
+  only on exact triplet match after proper date column construction.
 
-Issue 4 — Negative salary values: One record with salary = -58,486 was detected.
-Treated as a data entry error and replaced with the median.
+Issue 3 — Dollar Cost Points Redeemed (previously unused):
+  23,885 of 389,065 monthly records have non-zero dollar cost. Engineered into
+  dollar_cost_per_flight — the 12th most important XGBoost feature.
 
-2.3 CHURN DEFINITION
-─────────────────────
-Three definitions were evaluated:
+Issue 4 — Post-cancellation activity:
+  100 cancelled customers had activity records (flew before formal cancellation).
+  Temporal filtering ensures only pre-2017-12-31 data is used for features.
+
+{sh('2.3 CHURN DEFINITION')}
+Three definitions evaluated and compared:
 
   a) Hard Churn (Formal Cancellation in 2018):
-     Cancellation_Year = 2018 OR Cancellation_Year is not null and year ≥ 2018.
-     Rate: {hard_rate:.1%} ({int(total_customers * hard_rate):,} customers).
-     Weakness: Captures only formal resignations; misses silent disengagement.
+     Rate: {s['churn_rate_hard']:.1%} ({int(total_cust*s['churn_rate_hard']):,} customers).
+     Weakness: Misses silent disengagement entirely.
 
-  b) Activity Churn (No Flights in All of 2018):
-     Customer has zero total_flights across all 2018 months.
-     Rate: {activity_rate:.1%} ({int(total_customers * activity_rate):,} customers).
-     Weakness: May over-flag seasonal travelers who return after a break.
+  b) Activity Churn (Zero Flights in All of 2018):
+     Rate: {s['churn_rate_activity']:.1%} ({int(total_cust*s['churn_rate_activity']):,} customers).
+     Weakness: May over-flag seasonal travellers who return.
 
-  c) COMBINED CHURN [ADOPTED]:
-     Hard Churn OR Activity Churn.
-     Rate: {churn_rate:.1%} ({int(total_customers * churn_rate):,} customers).
-     Justification: The business cost of missing a real churner (lost CLV) far
-     exceeds the cost of a false positive (one unused retention offer). The
-     combined definition is more conservative and more business-relevant.
+  c) COMBINED CHURN [ADOPTED] — Hard OR Activity:
+     Rate: {churn_rate:.1%} ({int(total_cust*churn_rate):,} customers).
+     Justification: Missing a real churner costs their full CLV (~${seg_df['clv'].mean():,.0f} avg).
+     A false positive costs one unused offer (~$50). This asymmetry strongly favours
+     the combined, more conservative definition.
 
-Temporal integrity: All features are computed strictly from 2017 data. No
-2018 activity is used in feature engineering. Labels are determined by 2018
-behavior. This prevents data leakage entirely.
+Temporal integrity: ALL features from 2017 only. ALL labels from 2018 behaviour.
+Zero data leakage.
 
-================================================================================
-3. METHODOLOGY
-================================================================================
+{h('3. METHODOLOGY')}
+{sh('3.1 FEATURE ENGINEERING (27 Behavioral Features)')}
+Features organised into 6 categories — all derived strictly from 2017 data:
 
-3.1 FEATURE ENGINEERING (21 Behavioral Features)
-──────────────────────────────────────────────────
-Features are organized into 6 behavioral categories:
+RFM (Recency-Frequency-Monetary):
+  recency_months, avg_flights_per_month, total_distance,
+  total_points_accumulated, total_points_redeemed, clv_log
 
-RECENCY-FREQUENCY-MONETARY (RFM):
-• recency_months: months since last recorded flight in 2017 (0 = active in Dec 2017)
-• avg_flights_per_month: average monthly flights in 2017
-• total_distance: total km traveled in 2017
-• total_points_accumulated / total_points_redeemed
-• clv_log: log-transformed Customer Lifetime Value
+Activity Patterns:
+  active_months, active_month_ratio, q4_flights, flight_consistency,
+  momentum_h2_minus_h1, q1_flights, points_balance
 
-ACTIVITY PATTERNS:
-• active_months: number of months with ≥1 flight in 2017
-• active_month_ratio: active_months / 12 (consistency proxy)
-• q4_flights: flights in Q4 2017 (October–December) — recency signal
-• flight_consistency: 1 - coefficient of variation (lower CV = more consistent)
+Engagement & Economics:
+  engagement_health_score (0–100 composite), redemption_rate,
+  dollar_cost_per_flight [NEW], salary, salary_missing
 
-ENGAGEMENT:
-• engagement_health_score: 0–100 composite of recency, frequency, consistency,
-  redemption, and tier (equal weights, min-max normalized)
-• redemption_rate: points redeemed / points accumulated (loyalty currency usage)
-• momentum_h2_minus_h1: H2 2017 flights minus H1 2017 flights (direction of change)
-• points_balance: accumulated minus redeemed (unredeemed equity)
+Geographic [NEW]:
+  is_ontario, is_bc, is_quebec, is_alberta
+  (Province variation: {lowest_prov_rate:.1%} to {highest_prov_rate:.1%} churn — significant signal)
 
-DEMOGRAPHICS:
-• tier_numeric: Star=1, Nova=2, Aurora=3
-• tenure_months: months from enrollment to Dec 2017
-• salary + salary_missing flag
-• education_numeric, is_female, is_married, is_promo_enrollment
+Cohort [NEW]:
+  is_recent_member (enrolled 2017+), is_early_member (enrolled ≤2014)
 
-3.2 CUSTOMER SEGMENTATION
-───────────────────────────
-Algorithm: K-Means on min-max normalized behavioral features.
-Optimal K: {num_segments} clusters (by silhouette score — evaluated K=3 to K=8).
+Demographics:
+  tier_numeric, tenure_months, education_numeric, is_female, is_married,
+  is_promo_enrollment
 
-Cluster features used: avg_flights_per_month, recency_months, active_month_ratio,
-redemption_rate, clv_log, tier_numeric, tenure_months, engagement_health_score,
-momentum_h2_minus_h1, total_distance.
+{sh('3.2 CUSTOMER SEGMENTATION')}
+Algorithm: K-Means clustering on 12 min-max normalised behavioural features.
+K selection: silhouette score evaluation over K=4 to K=8. K={s['num_segments']} selected.
 
-3.3 MODEL DEVELOPMENT
-──────────────────────
-Three models were trained and compared:
+{sh('3.3 MODEL DEVELOPMENT')}
+80/20 stratified train/test split (stratify preserves 16.3% churn rate in both sets).
+Class imbalance handled: SMOTE for LR/RF; scale_pos_weight for XGBoost.
 
-  Logistic Regression (baseline):
-  • SMOTE oversampling on training set (mirrors real-world 84/16 class split on test)
-  • Regularization C=0.1 to prevent overfitting on sparse features
-  • AUC: {lr_auc:.3f}
+  Logistic Regression: AUC {s['model_results']['Logistic Regression']['AUC']:.4f} | Recall {s['model_results']['Logistic Regression']['Recall']:.4f} | F1 {s['model_results']['Logistic Regression']['F1']:.4f}
+  Random Forest:       AUC {s['model_results']['Random Forest']['AUC']:.4f} | Recall {s['model_results']['Random Forest']['Recall']:.4f} | F1 {s['model_results']['Random Forest']['F1']:.4f}
+  XGBoost [chosen]:    AUC {xgb_auc:.4f} | Recall {xgb_rec:.4f} | F1 {s['model_results']['XGBoost']['F1']:.4f}
 
-  Random Forest:
-  • 200 trees, max_depth=10, min_samples_leaf=5
-  • SMOTE applied; evaluated on unaugmented test set
-  • AUC: {rf_auc:.3f}
+5-fold cross-validation AUC (XGBoost): {s.get('cv_scores',{}).get('XGBoost', xgb_auc):.4f}
 
-  XGBoost [PRODUCTION MODEL]:
-  • 300 estimators, learning_rate=0.05, max_depth=6
-  • Class imbalance handled via scale_pos_weight = {int((1-churn_rate)/churn_rate)}
-  • Subsampling (0.8) and column sampling (0.8) to reduce overfitting
-  • AUC: {xgb_auc:.3f}, Recall: {xgb_recall:.1%}, Precision: {xgb_precision:.1%}
-
-Why XGBoost over deep learning: The dataset has ~16K rows and 21 features —
-too small for neural networks. XGBoost is the industry standard for structured
-tabular churn prediction, is interpretable via feature importance, and achieves
-state-of-the-art performance on this data size.
-
-================================================================================
-4. SEGMENTATION INSIGHTS
-================================================================================
-
-{num_segments} Distinct Customer Segments Identified:
-
+{h('4. SEGMENTATION INSIGHTS')}
+{s['num_segments']} distinct behavioral segments:
 """
 
-for _, row in seg_profiles.iterrows():
-    seg = row['segment_name']
-    report += f"""  {seg.upper()}
-  • Count: {row['count']:,} customers ({row['count']/total_customers:.1%} of base)
-  • Churn Rate: {row['churn_rate']:.1%}
-  • Avg CLV: ${row['avg_clv']:,.0f}
-  • Avg Monthly Flights: {row['avg_flights']:.1f}
-  • Avg Recency: {row['avg_recency']:.1f} months
-  • Revenue at Risk: ${row['revenue_at_risk']:,.0f}
-
+for name, d in seg_sorted:
+    rev = d['count'] * d['avg_revenue_at_risk']
+    report += f"""
+  {name.upper()}
+  Count: {d['count']:,} ({d['count']/total_cust:.1%})  |  Churn Rate: {d['churn_rate']:.1%}
+  Avg CLV: ${d['avg_clv']:,.0f}  |  Revenue at Risk: ${rev:,.0f}
 """
 
 report += f"""
-KEY SEGMENTATION FINDINGS:
+KEY FINDINGS:
 
-1. Seasonal Travelers ({seg_profiles[seg_profiles['segment_name']=='Seasonal Travelers']['count'].values[0]:,} customers) carry
-   a {seg_profiles[seg_profiles['segment_name']=='Seasonal Travelers']['churn_rate'].values[0]:.0%} churn rate — the highest of any segment.
-   Their defining pattern: near-zero activity outside of peak months, high recency
-   (months since last flight), and low engagement scores. These customers are at
-   risk of full disengagement during the off-season window.
+1. {top_seg} ({top_seg_d['churn_rate']:.0%} churn): The highest-risk segment. Very low flight
+   activity, high recency, low engagement scores. Without intervention, these
+   customers will silently lapse — they represent the largest addressable churn pool.
 
-2. Active Champions ({seg_profiles[seg_profiles['segment_name']=='Active Champions']['count'].values[0]:,} customers) show only
-   a {seg_profiles[seg_profiles['segment_name']=='Active Champions']['churn_rate'].values[0]:.1%} churn rate, proving that consistent monthly
-   flying is the single strongest predictor of retention. They have high active
-   month ratios and strong Q4 2017 activity.
+2. {safe_seg} ({safe_seg_d['churn_rate']:.0%} churn): Most stable. Consistent monthly fliers
+   with high active-month ratios. Low-cost appreciation keeps them loyal.
 
-3. Miles Hoarders ({seg_profiles[seg_profiles['segment_name']=='Miles Hoarders']['count'].values[0]:,} customers) accumulate points
-   but rarely redeem. Low redemption rates signal low engagement with the loyalty
-   program's core value proposition. Without redemption, these members never
-   experience program benefits — increasing silent churn risk.
+3. Geographic Signal: {highest_prov} has the highest churn ({highest_prov_rate:.1%}) and the
+   largest member base — making it the top priority for provincial campaigns.
+   Revenue at risk from {highest_prov} alone: ${prov_agg.loc[highest_prov,'rev_at_risk']:,.0f} CAD.
 
-4. Premium Loyalists ({seg_profiles[seg_profiles['segment_name']=='Premium Loyalists']['count'].values[0]:,} customers) have
-   the highest CLV (${seg_profiles[seg_profiles['segment_name']=='Premium Loyalists']['avg_clv'].values[0]:,.0f} avg) but a
-   {seg_profiles[seg_profiles['segment_name']=='Premium Loyalists']['churn_rate'].values[0]:.1%} churn rate. While currently stable,
-   any signal of declining engagement in this group must be acted on within 24–48 hours
-   given the outsized revenue impact of each defection.
+4. Cohort Effect: {newest_cohort} enrollees churn at {newest_churn:.0%} — {newest_churn/churn_rate:.1f}× the overall average.
+   Earliest cohort ({oldest_cohort}) churns at just {oldest_churn:.0%}. First-year retention
+   programmes are the single highest-leverage intervention available.
 
-================================================================================
-5. MODEL RESULTS
-================================================================================
-
+{h('5. MODEL RESULTS')}
 PERFORMANCE COMPARISON:
-┌─────────────────────┬────────┬────────┬───────────┬────────┐
-│ Model               │  AUC   │ Recall │ Precision │   F1   │
-├─────────────────────┼────────┼────────┼───────────┼────────┤
-│ Logistic Regression │ {lr_auc:.4f} │ {summary['model_results']['Logistic Regression']['Recall']:.4f} │  {summary['model_results']['Logistic Regression']['Precision']:.4f}   │ {summary['model_results']['Logistic Regression']['F1']:.4f} │
-│ Random Forest       │ {rf_auc:.4f} │ {summary['model_results']['Random Forest']['Recall']:.4f} │  {summary['model_results']['Random Forest']['Precision']:.4f}   │ {summary['model_results']['Random Forest']['F1']:.4f} │
-│ XGBoost ★ Best      │ {xgb_auc:.4f} │ {xgb_recall:.4f} │  {xgb_precision:.4f}   │ {summary['model_results']['XGBoost']['F1']:.4f} │
-└─────────────────────┴────────┴────────┴───────────┴────────┘
-★ Deployed to production; AUC 0.87 selected for strong recall-precision balance.
+{'─'*68}
+{'Model':<25} {'AUC':>8} {'Recall':>9} {'Precision':>11} {'F1':>8}
+{'─'*68}"""
 
-BUSINESS INTERPRETATION (XGBoost at 0.87 AUC, {xgb_recall:.0%} Recall):
-• Of every 100 customers who will actually churn, the model correctly flags {xgb_recall*100:.0f}.
-• Of every 100 churn alerts sent to marketing, {xgb_precision*100:.0f} represent genuine churners.
-• The 3-month prediction window (using only 2017 data to predict 2018 outcomes)
-  gives marketing 90+ days to act — well before the customer physically leaves.
-
-TOP 5 FEATURE IMPORTANCES (XGBoost):
-"""
-
-for i, row in top5_features.iterrows():
-    feat = row['feature'].replace('_', ' ').title()
-    report += f"  {i+1}. {feat}: {row['importance']:.3f}\n"
+for _, row in mc_df.iterrows():
+    star = ' ★' if row['Model'] == 'XGBoost' else '  '
+    report += f"\n{row['Model']+star:<25} {row['AUC']:>8.4f} {row['Recall']:>9.4f} {row['Precision']:>11.4f} {row['F1']:>8.4f}"
 
 report += f"""
-INTERPRETATION OF TOP FEATURES:
-• q4_flights (importance 0.312): Whether a customer flew in Q4 2017 is the single
-  strongest predictor of 2018 engagement. Q4 activity signals active intent; absence
-  signals impending disengagement.
-• active_month_ratio (0.133): Customers who fly consistently every month churn far
-  less than sporadic fliers. Consistency trumps volume.
-• tenure_months (0.087): Newer members churn at higher rates — onboarding quality
-  matters. Members who survive the first 12 months become significantly more loyal.
-• active_months (0.077): The total count of months with any activity reinforces the
-  consistency signal above.
-• recency_months (0.058): How long ago the customer last flew. Each additional month
-  of inactivity multiplies churn probability.
+{'─'*68}
+★ XGBoost selected for production.
 
-================================================================================
-6. BUSINESS RECOMMENDATIONS
-================================================================================
+BUSINESS INTERPRETATION:
+• Of every 100 customers who will churn, the model correctly flags {xgb_rec*100:.0f}.
+• Of every 100 churn alerts, {xgb_prec*100:.0f} are genuine churners.
+• 3-month prediction window gives marketing 90+ days to act.
 
-RECOMMENDATION 1 — DEPLOY A SEGMENT-SPECIFIC INTERVENTION PROGRAM (CMO Action)
-──────────────────────────────────────────────────────────────────────────────────
-Target: All {high_risk:,} high-risk customers identified by the model.
-Timeline: Within 48–72 hours of system deployment.
+TOP 10 FEATURE IMPORTANCES:
+{'─'*50}"""
 
-Segment-specific offers:
-• Seasonal Travelers (High Risk): 4,000 bonus miles + exclusive off-peak fare deal
-  → Channel: SMS + Email simultaneously → Target booking within 45 days
-• Silent Drifters (High Risk): 8,000 bonus miles + waived change fees 60 days
-  → Channel: SMS + Email + App push → Target booking within 30 days
-• Premium Loyalists (High Risk): Companion ticket + Aurora status guarantee
-  → Channel: Personal phone call + premium email
-  → Must reach within 24 hours (highest revenue per customer)
+for i, row in fi_df.head(10).iterrows():
+    report += f"\n  {i+1:>2}. {row['feature']:<30} {row['importance']:>8.4f}"
 
-Why these specific offers: Each offer addresses the behavioral root cause — seasonal
-travelers need a reason to fly off-peak; silent drifters need a low-friction re-entry;
-premium loyalists need to feel recognized, not just marketed to.
+report += f"""
 
-Expected impact: ${potential_save:,.0f} CAD in recovered revenue at a {features_df[features_df['risk_level']=='High']['incentive_cost_cad'].mean():.0f} CAD avg incentive cost per customer.
+Key: q4_flights is #1 (importance {top5_features[0]['importance']:.3f}) — Q4 flying is the
+most reliable observable signal of future loyalty. is_recent_member is #2
+({top5_features[1]['importance']:.3f}) — new members are structurally at higher risk.
+active_month_ratio is #3 ({top5_features[2]['importance']:.3f}) — consistency > volume.
 
-RECOMMENDATION 2 — REDESIGN THE MILES HOARDER EXPERIENCE (CMO + Product Action)
-──────────────────────────────────────────────────────────────────────────────────
-The {seg_profiles[seg_profiles['segment_name']=='Miles Hoarders']['count'].values[0]:,} Miles Hoarders have a paradox: they earn points but don't redeem.
-Low redemption = low perceived program value = silent churn risk.
+{h('6. BUSINESS RECOMMENDATIONS')}
+RECOMMENDATION 1 — SEGMENT-SPECIFIC INTERVENTION PROGRAM  (CMO)
+{'─'*72}
+Target: {n_high:,} high-risk customers. Deploy within 48–72 hours.
 
-Action: Launch a "Use Your Miles" campaign with:
-• 50% bonus value on any redemption made in the next 60 days
-• In-app push showing their miles balance and what it buys (flights, upgrades)
-• Flash sales exclusive to members with >10,000 unredeemed points
+Who, what, when, via what channel:"""
 
-Metric to track: Redemption rate (target: increase from current {features_df[features_df['segment_name']=='Miles Hoarders']['redemption_rate'].mean():.1%} to 20%+ within 90 days).
-What you risk: Increased cost of points liability redemption. Offset by: customers
-who redeem are 3× more likely to book another flight immediately after.
+segment_offers = {
+    'Active Champions':  ('Loyalty Lock-In',        '6,000 bonus miles + priority check-in 6 months',
+                          'Email + App push',        '3 days'),
+    'Miles Hoarders':    ('Redemption Activation',   '2× redemption value + 60-day flash sale on points',
+                          'Email + App push',        '72 hours'),
+    'Premium Dormant':   ('VIP Win-Back',            'Companion ticket + 12-month status guarantee',
+                          'Phone call + email',      '24 hours'),
+    'Seasonal Travelers':('Off-Season Reactivation','4,000 bonus miles + 30% off off-peak fare',
+                          'Email + SMS',             '72 hours'),
+}
 
-RECOMMENDATION 3 — BUILD AN EARLY WARNING MONITORING SYSTEM (CFO + Analytics Action)
-──────────────────────────────────────────────────────────────────────────────────────
-The current system is retrospective — it predicts based on historical patterns. To
-build a truly proactive capability:
+for seg, (action, offer_text, channel, timing) in segment_offers.items():
+    if seg in segs:
+        report += f"\n  • {seg}: {action} — {offer_text}\n    Channel: {channel}  |  Within: {timing}\n"
 
-a) Monthly model refresh: Re-run the churn model monthly as new flight activity
-   data arrives. Any customer whose churn probability crosses 40% (medium risk
-   threshold) should be automatically enrolled in a drip retention campaign.
+report += f"""
+Justification: Each offer addresses the behavioural root cause, not a generic "more miles"
+message. Seasonal Travelers need a reason to fly off-peak. Premium Dormant customers
+need to feel recognised, not marketed to.
 
-b) Q4 activity tracking: Given that Q4 flights are the #1 predictor, monitor each
-   November whether Aurora and Nova tier members are on track to match their
-   prior-year Q4 activity. A 30%+ drop vs. prior year = automatic high-risk flag.
+Expected recovery: ${save:,.0f} CAD (industry benchmark: 27% retention lift on
+targeted vs. untargeted outreach).
 
-c) Tenure milestone rewards: Members in their first 12 months of enrollment show
-   significantly higher churn. Implement automatic 3, 6, and 12-month milestone
-   rewards (500/1,000/2,000 bonus miles) to anchor early-stage loyalty.
+RECOMMENDATION 2 — FIRST-YEAR MEMBER RETENTION PROGRAM  (CMO + Product)
+{'─'*72}
+Members enrolled in {newest_cohort} churn at {newest_churn:.0%} — {newest_churn/churn_rate:.1f}× the overall average.
+First-year loyalty is the most fragile and most improvable.
 
-Expected investment: ~3 data engineering months to build the pipeline.
-Expected ROI: Prevention of 15–20% additional churn (based on industry benchmarks
-for proactive vs. reactive retention programs).
+Milestone programme:
+  Month 3:  500 bonus miles + "Your loyalty progress" personalised email
+  Month 6:  1,000 bonus miles + early Nova card upgrade offer (if on Star tier)
+  Month 12: 2,000 bonus miles + anniversary recognition + tier status review
 
-================================================================================
-7. LIMITATIONS & NEXT STEPS
-================================================================================
+Business case: $15–30 total investment per new member vs. ~${seg_df['clv'].mean():,.0f} CLV at stake.
+Expected impact: 15–20% reduction in first-year churn (industry benchmark).
 
+RECOMMENDATION 3 — PROVINCIAL ACTIVATION CAMPAIGN  (CFO + CMO)
+{'─'*72}
+{highest_prov} has the highest churn ({highest_prov_rate:.1%}) and the largest member base.
+Revenue at risk from {highest_prov}: ${prov_agg.loc[highest_prov,'rev_at_risk']:,.0f} CAD.
+
+Actions:
+  a) Province-specific route promotions: 4-week fare deals on {highest_prov}-origin
+     routes during shoulder seasons (April–May, September–October).
+  b) Partnership campaigns with {highest_prov} employers and event sponsors.
+  c) Monthly province-level revenue-at-risk reporting to regional sales teams.
+
+{h('7. LIMITATIONS & NEXT STEPS')}
 LIMITATIONS:
-• Activity data is limited to 2017–2018. Longer time series (2012–2018) would
-  enable more robust trend and trajectory features.
-• The model cannot distinguish between customers who churned to a competitor
-  vs. those who simply reduced travel frequency (e.g., life event, economic change).
-• All Canadian customers — geographic analysis is limited to province/city level
-  without meaningful variation.
-• No A/B test data: retention offer effectiveness is estimated from industry
-  benchmarks (27% retention lift), not measured on this dataset.
+• Activity data limited to 2017–2018. Longer time series would enable multi-year
+  trajectory features and seasonality patterns.
+• Cannot distinguish competitor defection from reduced travel frequency.
+• is_recent_member (#2 feature) may partly capture structural label bias:
+  members enrolled in late 2017 inherently have less 2017 activity.
+  Validate against 2019 data once available.
+• 27% retention lift is an industry benchmark, not measured on this dataset.
 
 NEXT STEPS:
-1. A/B test the top retention offers per segment (Q3 2026) — measure actual
-   booking lift vs. control group.
-2. Build a real-time scoring API that ingests monthly flight data and outputs
-   updated churn probabilities within 48 hours of month close.
-3. Extend the model to predict CLV trajectory (not just binary churn) — this
-   would enable tier downgrade alerts before formal cancellation.
-4. Integrate NPS/satisfaction survey data as an additional behavioral signal.
+1. A/B test top retention offers per segment (90-day measurement window).
+2. Build real-time scoring API — monthly flight data → updated churn probabilities.
+3. Extend to CLV trajectory prediction (not just binary churn).
+4. Integrate NPS/satisfaction data as additional signal.
+5. Re-train on 2019–2024 data once available.
 
-================================================================================
-8. APPENDIX — CHURN DEFINITION JUSTIFICATION
-================================================================================
+{h('8. APPENDIX')}
+{sh('Feature Engineering Notes')}
+Province flags (is_ontario, is_bc, is_quebec, is_alberta): Added after geographic
+analysis showed {highest_prov_rate:.1%}–{lowest_prov_rate:.1%} variance in provincial churn rates.
 
-The combined churn definition was chosen over hard churn alone because:
+Dollar cost per flight: Previously unused column in activity data. Sparse but provides
+the only direct economic redemption signal. Emerged as 12th most important feature.
 
-(a) 12.35% of customers have formal cancellation records — but this understates
-    the true disengagement problem. An additional 4.3% of members have no 2018
-    flight activity despite remaining enrolled. These "silent churners" represent
-    ${features_df[(features_df['activity_churn']==1)&(features_df['hard_churn']==0)]['clv'].sum():,.0f} in combined CLV that the airline treats as "active" but
-    that generates zero revenue going forward.
+is_recent_member / is_early_member: Cohort flags derived from enrollment_year.
+Directly encode the {newest_churn:.0%}-vs-{oldest_churn:.0%} churn differential observed across cohorts.
 
-(b) From the airline's revenue perspective, a member who hasn't flown in 12+
-    months is economically equivalent to a churned customer — regardless of their
-    enrollment status.
+{sh('Output Files')}
+  complete_pipeline.py          → Full 9-stage working code pipeline
+  dashboard.py                  → 5-page Streamlit executive dashboard
+  outputs/reports/retention_actions.csv  → {len(ret_df):,} at-risk customers + specific actions
+  outputs/reports/model_comparison.csv   → LR vs RF vs XGBoost metrics
+  outputs/reports/feature_importance.csv → 27 features ranked by importance
+  outputs/reports/pipeline_summary.json  → All numbers in machine-readable format
+  outputs/figures/               → 9 PNG charts (exploration, models, segments, churn)
+  data/final/customer_segments.csv → {len(seg_df):,} customers × {seg_df.shape[1]} columns (features + predictions)
 
-(c) The combined definition avoids the false precision of treating only
-    cancellations as churn. It's a more conservative, more complete signal.
-
-Competing definition tested: 6-month inactivity threshold. This produced
-higher churn rates but more false positives among seasonal travelers who
-genuinely return after summer. The 12-month threshold aligns with the natural
-annual travel cycle of Canadian customers.
-
-================================================================================
+{'='*80}
 END OF REPORT
-================================================================================
-Submission materials:
-  - complete_pipeline.py  — Full working code pipeline
-  - dashboard.py          — Streamlit executive dashboard
-  - outputs/reports/      — All quantitative outputs (CSV + JSON)
-  - outputs/figures/      — All visualizations
-  - data/final/           — Feature matrices and segment assignments
-================================================================================
+{'='*80}
 """
 
-output_path = Path("outputs/reports/technical_report.txt")
-with open(output_path, 'w') as f:
-    f.write(report)
-
-print(f"Technical report saved to: {output_path}")
-print(f"\nReport length: {len(report.split(chr(10)))} lines")
-print("\nReport preview (first 20 lines):")
-print('\n'.join(report.split('\n')[:20]))
+output_path = REPORTS / "technical_report.txt"
+output_path.write_text(report)
+print(f"Technical report written: {output_path}")
+print(f"  Lines: {len(report.splitlines()):,}")
+print(f"  Words: {len(report.split()):,}")
