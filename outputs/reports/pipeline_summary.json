@@ -1,0 +1,224 @@
+{
+  "total_customers": 16737,
+  "churn_rate_combined": 0.1629921730298142,
+  "churn_rate_hard": 0.03853737228894067,
+  "churn_rate_activity": 0.12684471530142796,
+  "at_risk_high": 1862,
+  "at_risk_medium": 3021,
+  "total_revenue_at_risk_cad": 29404660.41,
+  "total_potential_save_cad": 7939258.719999999,
+  "num_segments": 4,
+  "xgboost_auc": 0.8711444990888245,
+  "xgboost_recall": 0.6721611721611722,
+  "xgboost_precision": 0.5288184438040345,
+  "best_model_auc": 0.873976398334,
+  "analysis_date": "2026-06-11T19:42:23.927635",
+  "segment_profiles": {
+    "Active Champions": {
+      "count": 5653,
+      "churn_rate": 0.04617017512825049,
+      "avg_clv": 8975.677249248185,
+      "avg_revenue_at_risk": 679.8265204316292
+    },
+    "Miles Hoarders": {
+      "count": 4794,
+      "churn_rate": 0.04005006257822278,
+      "avg_clv": 6741.956841885689,
+      "avg_revenue_at_risk": 471.32118898623276
+    },
+    "Premium Dormant": {
+      "count": 3447,
+      "churn_rate": 0.36785610675950103,
+      "avg_clv": 9133.689071656512,
+      "avg_revenue_at_risk": 4258.242445604874
+    },
+    "Seasonal Travelers": {
+      "count": 2843,
+      "churn_rate": 0.35420330636651426,
+      "avg_clv": 6741.431762223004,
+      "avg_revenue_at_risk": 3033.389236721773
+    }
+  },
+  "model_results": {
+    "Logistic Regression": {
+      "AUC": 0.8434726111385641,
+      "Recall": 0.7728937728937729,
+      "Precision": 0.40576923076923077,
+      "F1": 0.532156368221942
+    },
+    "Random Forest": {
+      "AUC": 0.873976398334,
+      "Recall": 0.5018315018315018,
+      "Precision": 0.9072847682119205,
+      "F1": 0.6462264150943396
+    },
+    "XGBoost": {
+      "AUC": 0.8711444990888245,
+      "Recall": 0.6721611721611722,
+      "Precision": 0.5288184438040345,
+      "F1": 0.5919354838709677
+    }
+  },
+  "cv_scores": {
+    "Logistic Regression": 0.8532081105136253,
+    "XGBoost": 0.8770640211635652
+  },
+  "top_features": [
+    {
+      "feature": "q4_flights",
+      "importance": 0.24640069901943207
+    },
+    {
+      "feature": "is_recent_member",
+      "importance": 0.19829639792442322
+    },
+    {
+      "feature": "active_month_ratio",
+      "importance": 0.08735434710979462
+    },
+    {
+      "feature": "active_months",
+      "importance": 0.07712408155202866
+    },
+    {
+      "feature": "tenure_months",
+      "importance": 0.06180114299058914
+    },
+    {
+      "feature": "avg_flights_per_month",
+      "importance": 0.024467764422297478
+    },
+    {
+      "feature": "flight_consistency",
+      "importance": 0.02176680974662304
+    },
+    {
+      "feature": "points_balance",
+      "importance": 0.01916675642132759
+    },
+    {
+      "feature": "total_points_accumulated",
+      "importance": 0.018623298034071922
+    },
+    {
+      "feature": "total_distance",
+      "importance": 0.01829567551612854
+    }
+  ],
+  "geographic": [
+    {
+      "province": "Prince Edward Island",
+      "churn_rate": 0.24242424242424243,
+      "count": 66,
+      "avg_clv": 7704.488484848484,
+      "revenue_at_risk": 127958.81
+    },
+    {
+      "province": "Manitoba",
+      "churn_rate": 0.19300911854103345,
+      "count": 658,
+      "avg_clv": 8066.555775075988,
+      "revenue_at_risk": 1372514.27
+    },
+    {
+      "province": "Newfoundland",
+      "churn_rate": 0.18992248062015504,
+      "count": 258,
+      "avg_clv": 8025.080348837209,
+      "revenue_at_risk": 442437.46
+    },
+    {
+      "province": "Quebec",
+      "churn_rate": 0.16787878787878788,
+      "count": 3300,
+      "avg_clv": 8160.956281818182,
+      "revenue_at_risk": 6163379.75
+    },
+    {
+      "province": "Saskatchewan",
+      "churn_rate": 0.16625916870415647,
+      "count": 409,
+      "avg_clv": 8076.374498777506,
+      "revenue_at_risk": 763314.8
+    },
+    {
+      "province": "Alberta",
+      "churn_rate": 0.16305469556243551,
+      "count": 969,
+      "avg_clv": 7752.788658410733,
+      "revenue_at_risk": 1639389.02
+    },
+    {
+      "province": "Ontario",
+      "churn_rate": 0.1624722427831236,
+      "count": 5404,
+      "avg_clv": 7913.752257586973,
+      "revenue_at_risk": 9314749.23
+    },
+    {
+      "province": "Nova Scotia",
+      "churn_rate": 0.16216216216216217,
+      "count": 518,
+      "avg_clv": 7983.304749034749,
+      "revenue_at_risk": 900263.35
+    },
+    {
+      "province": "British Columbia",
+      "churn_rate": 0.1567248809253799,
+      "count": 4409,
+      "avg_clv": 7993.727409843502,
+      "revenue_at_risk": 7517602.45
+    },
+    {
+      "province": "New Brunswick",
+      "churn_rate": 0.139937106918239,
+      "count": 636,
+      "avg_clv": 8154.182672955974,
+      "revenue_at_risk": 1039739.36
+    },
+    {
+      "province": "Yukon",
+      "churn_rate": 0.12727272727272726,
+      "count": 110,
+      "avg_clv": 6771.6559090909095,
+      "revenue_at_risk": 123311.91
+    }
+  ],
+  "cohorts": {
+    "2012": {
+      "count": 1686,
+      "churn_rate": 0.1423487544483986,
+      "avg_clv": 7998.542099644128
+    },
+    "2013": {
+      "count": 2397,
+      "churn_rate": 0.1543596161869003,
+      "avg_clv": 8045.484267834793
+    },
+    "2014": {
+      "count": 2370,
+      "churn_rate": 0.16413502109704642,
+      "avg_clv": 7850.489898734177
+    },
+    "2015": {
+      "count": 2331,
+      "churn_rate": 0.17546117546117546,
+      "avg_clv": 8177.793410553411
+    },
+    "2016": {
+      "count": 2456,
+      "churn_rate": 0.16001628664495113,
+      "avg_clv": 8058.05799267101
+    },
+    "2017": {
+      "count": 2487,
+      "churn_rate": 0.15319662243667068,
+      "avg_clv": 7776.879975874547
+    },
+    "2018": {
+      "count": 3010,
+      "churn_rate": 0.1813953488372093,
+      "avg_clv": 8019.868810631229
+    }
+  }
+}
