@@ -1,304 +1,177 @@
 # ✈️ Airline Loyalty Behavioral Intelligence Platform
-### AI-Powered Churn Prediction, Customer Segmentation & Retention Engine
+### Churn Prediction · Customer Segmentation · Smart Retention
+**IIT Guwahati — C&A Club Summer Projects '26**
 
 ---
 
-## Results (Verified on Real Data)
+## Quick Start (3 commands)
 
-| Metric | Value |
-|--------|-------|
-| Dataset | 16,737 Canadian airline loyalty members (2017–2018) |
-| Churn rate | 12.35% (combined: cancelled OR 6-month inactive) |
-| **XGBoost AUC** | **0.9733** |
-| Recall | 85.7% — catches 353 of 413 churners |
-| Precision | 81.6% — 81.6% of churn alerts are correct |
-| At-risk customers | 2,648 (15.8%) |
-| Revenue at risk | **$21,865,444** |
-| Potential savings | **$5,630,492** |
+```bash
+# 1. Install dependencies (first time only)
+venv/bin/pip install pandas numpy scipy matplotlib seaborn plotly \
+  scikit-learn xgboost imbalanced-learn streamlit joblib
 
----
+# 2. Run the full pipeline (all 9 stages, ~90 seconds)
+venv/bin/python complete_pipeline.py
 
-## What This Project Builds
+# 3. Launch the dashboard
+venv/bin/streamlit run dashboard.py
+# Open browser → http://localhost:8501
 
-A **production-ready AI system** that:
-- Predicts customer churn with **AUC 0.9733** (XGBoost, GPU-trained)
-- Creates **5 actionable behavioral segments** with named archetypes
-- Recommends **specific retention actions** per customer with revenue impact
-- Delivers an **executive Streamlit dashboard** any manager can use
+# Optional: regenerate the technical report
+venv/bin/python generate_technical_report.py
+```
 
 ---
 
-## �️ File Structure
+## Project Structure
 
 ```
 airline_behavioral_intelligence/
 │
-├── � resume.py                    ← START HERE after any break
-├── � run_pipeline.py              ← Run all stages automatically
+├── data/
+│   ├── raw/                          ← Original CSVs (never modify)
+│   │   ├── Customer Loyalty History.csv      (16,737 members)
+│   │   ├── Customer Flight Activity.csv      (392,936 monthly records)
+│   │   ├── Calendar.csv                      (date dimension)
+│   │   └── Airline Loyalty Data Dictionary.csv
+│   ├── processed/                    ← Cleaning & churn label outputs
+│   └── final/                        ← Model-ready feature matrices
+│       ├── customer_features.csv     (16,737 × 54 features)
+│       └── customer_segments.csv     (features + segment + churn prob + risk level)
 │
-├── � 00_project_setup.py          Stage 0: Setup
-├── � 01_data_exploration.py       Stage 1: Explore data
-├── � 02_data_cleaning.py          Stage 2: Clean data
-├── � 03_churn_definition.py       Stage 3: Define churn ⭐
-├── � 04_feature_engineering.py    Stage 4: Build 30-50 features ⭐
-├── � 05_customer_segmentation.py  Stage 5: Create segments
-├── � 06_baseline_models.py        Stage 6: Train ML models
-├── � 07_retention_engine.py       Stage 7: Build retention engine ⭐
-├── � 08_dashboard.py              Stage 8: Streamlit dashboard
+├── outputs/
+│   ├── models/                       ← Trained models (.pkl)
+│   │   ├── best_model.pkl            (XGBoost — production model)
+│   │   ├── xgboost.pkl
+│   │   ├── random_forest.pkl
+│   │   └── logistic_regression.pkl
+│   ├── figures/                      ← All PNG charts
+│   │   ├── exploration/              (geographic, cohort, demographic analysis)
+│   │   ├── models/                   (ROC curves, confusion matrix, model comparison)
+│   │   ├── segments/                 (behavioral heatmap, segment analysis)
+│   │   └── churn/                    (definition comparison, probability distribution)
+│   └── reports/
+│       ├── retention_actions.csv     (4,800+ at-risk customers + specific actions)
+│       ├── technical_report.txt      (formal 8-section report)
+│       ├── model_comparison.csv
+│       ├── feature_importance.csv
+│       └── pipeline_summary.json     (all key numbers in one file)
 │
-├── � data/
-│   ├── raw/                        ← Put your CSV files here
-│   ├── processed/                  ← Auto-generated checkpoints
-│   └── final/                      ← Final outputs
+├── complete_pipeline.py              ★ MAIN SCRIPT — runs all 9 stages
+├── dashboard.py                      ★ STREAMLIT DASHBOARD (5 pages)
+├── generate_technical_report.py      ← Generates formatted technical report
 │
-├── � outputs/
-│   ├── models/                     ← Saved ML models (.pkl)
-│   ├── figures/                    ← All visualizations (.png)
-│   └── reports/                    ← Reports (.json, .csv)
+├── 1_data_exploration.py             ← Individual stage scripts (fixed)
+├── 2_data_cleaning.py
+├── 3_churn_definition.py
+├── 4_feature_engineering.py
+├── 5_customer_segmentation.py
+├── 6_baseline_models.py
+├── 7_retention_engine.py
 │
-├── � checkpoints/
-│   └── progress.json               ← Tracks your progress
-│
-└── � logs/                        ← Error logs
+├── src/                              ← Module source files
+├── notebooks/                        ← Jupyter notebooks
+├── checkpoints/progress.json         ← Pipeline progress tracking
+├── requirements.txt
+└── config.yaml
 ```
 
 ---
 
-## � Quick Start (First Time)
+## Final Results
 
-### Step 1: Setup
-```bash
-python 00_project_setup.py
-```
+| Metric | Value |
+|--------|-------|
+| Total customers analyzed | 16,737 |
+| Combined churn rate | 16.3% (2,728 customers) |
+| Hard churn (formal cancellation) | 3.9% (645) |
+| Activity churn (silent, no 2018 flights) | 12.7% (2,123) |
+| High-risk customers | ~1,862 |
+| Revenue at risk (CAD) | ~$29.4M |
+| Potential recoverable revenue | ~$7.9M |
+| Best model AUC | 0.874 (Random Forest) |
+| Production model AUC | 0.871 (XGBoost) |
+| Production model Recall | 67.2% |
+| 5-fold CV AUC (XGBoost) | 0.877 |
 
-### Step 2: Download Data
-Place these files in `data/raw/`:
-- `Customer_Loyalty_History.csv`
-- `Customer_Flight_Activity.csv`
-- `Calendar.csv`
-- `Data_Dictionary.csv`
+### 4 Customer Segments
 
-### Step 3: Run the Pipeline
-```bash
-# Option A: Run all stages automatically
-python run_pipeline.py
+| Segment | Count | Churn Rate | Avg CLV | Priority |
+|---------|-------|-----------|---------|----------|
+| **Premium Dormant** | ~3,447 | **36.8%** | $9,134 | CRITICAL |
+| **Seasonal Travelers** | ~2,843 | 35.4% | $6,742 | HIGH |
+| Active Champions | ~5,653 | 4.6% | $8,976 | Monitor |
+| Miles Hoarders | ~4,794 | 4.0% | $6,742 | Nurture |
 
-# Option B: Run stage by stage (recommended for learning)
-python 01_data_exploration.py
-python 02_data_cleaning.py
-python 03_churn_definition.py
-python 04_feature_engineering.py
-python 05_customer_segmentation.py
-python 06_baseline_models.py
-python 07_retention_engine.py
-```
+### 3 Models Compared
 
-### Step 4: Launch Dashboard
-```bash
-streamlit run 08_dashboard.py
-```
-
----
-
-## � Resuming After a Break
-
-**Every time you restart, run this first:**
-```bash
-python resume.py
-```
-
-This tells you exactly where you left off and what to run next.
+| Model | AUC | Recall | Precision | F1 |
+|-------|-----|--------|-----------|-----|
+| Logistic Regression | 0.8435 | 0.7729 | 0.4058 | 0.5322 |
+| **Random Forest** | **0.8740** | 0.5018 | 0.9073 | 0.6462 |
+| XGBoost ★ (production) | 0.8711 | 0.6722 | 0.5288 | 0.5919 |
 
 ---
 
-## � Stage-by-Stage Guide
+## Pipeline Stages
 
-| Stage | Script | What It Does | Output |
-|-------|--------|-------------|--------|
-| 0 | `00_project_setup.py` | Creates directories, installs packages | Project structure |
-| 1 | `01_data_exploration.py` | Data quality report, initial analysis | EDA visualizations |
-| 2 | `02_data_cleaning.py` | Handle missing values, fix types | `loyalty_clean.csv`, `activity_clean.csv` |
-| 3 | `03_churn_definition.py` | Define & validate churn (CRITICAL) | `churn_labels.csv` |
-| 4 | `04_feature_engineering.py` | 30-50 behavioral features (CRITICAL) | `customer_features.csv` |
-| 5 | `05_customer_segmentation.py` | 4-7 named segments + strategies | `customer_segments.csv` |
-| 6 | `06_baseline_models.py` | LR + RF + XGBoost, AUC 0.80+ | `best_model.pkl`, predictions |
-| 7 | `07_retention_engine.py` | Next-best-action per customer | `retention_actions.csv` |
-| 8 | `08_dashboard.py` | 4-page interactive Streamlit app | Live dashboard |
-
----
-
-## � Feature Engineering (Stage 4) — The Differentiator
-
-This stage creates **30-50 behavioral features** across 7 categories:
-
-| Category | Examples | Why Important |
-|----------|----------|---------------|
-| **RFM** | Recency days, avg flights/month, CLV | Foundation metrics |
-| **Momentum** | Flight trend 3m vs 6m, engagement slope | Direction of change |
-| **Volatility** | Consistency score, CV of flights | Predictability of behavior |
-| **Temporal** | Seasonality score, holiday traveler | Travel motivation |
-| **Psychology** | Redemption rate, earn-burn ratio | Loyalty engagement |
-| **Trajectory** | YoY growth, activity trajectory | Long-term value trend |
-| **Engagement** | Health score 0-100, active month ratio | Overall loyalty strength |
+| Step | What Happens | Key Output |
+|------|-------------|-----------|
+| 1 | Load CSVs, fix salary, remove 3,871 duplicates, parse Calendar | Clean dataframes |
+| 2 | Define churn: Hard (3.9%) + Activity (12.7%) = Combined (16.3%) | `churn_labels.csv` |
+| 3 | Engineer 27 features — RFM, activity, engagement, geography, cohort, demographics | `customer_features.csv` |
+| 4 | K-Means clustering (K=4 by silhouette score), name 4 segments | `segment_name` |
+| 5 | Train LR + RF + XGBoost, SMOTE, 5-fold CV | `best_model.pkl` |
+| 6 | XGBoost feature importance ranking | `feature_importance.csv` |
+| 7 | Score all customers, risk level, per-customer retention action | `retention_actions.csv` |
+| 8 | Generate 9 visualisation charts | PNG files in `outputs/figures/` |
+| 9 | Write summary JSON + progress checkpoint | `pipeline_summary.json` |
 
 ---
 
-## Customer Segments (Actual Results)
+## Dashboard Pages
 
-| Segment | Size | Churn Rate | Avg CLV | Strategy |
-|---------|------|-----------|---------|---------|
-| **Premium Loyalists** | 7,113 (42.5%) | 9.4% | $5,252 | VIP treatment, maintain |
-| **Standard Travelers** | 6,249 (37.3%) | 15.3% | $5,174 | Re-engagement campaigns |
-| **Seasonal Travelers** | 2,396 (14.3%) | 13.6% | $17,931 | Pre-season targeted offers |
-| **Miles Hoarders** | 963 (5.8%) | 11.6% | $5,895 | Redemption incentives |
-| **Rising Stars** | 16 (0.1%) | 18.8% | $3,745 | Tier upgrade challenge |
-
----
-
-## Model Performance (Actual Results)
-
-| Model | AUC | Recall | Precision | F1 | CV AUC |
-|-------|-----|--------|-----------|-----|--------|
-| Logistic Regression | 0.9332 | 76.8% | 68.0% | 0.7213 | 0.9864 |
-| Random Forest | 0.9712 | 84.8% | 79.9% | 0.8226 | 0.9860 |
-| **XGBoost (GPU)** | **0.9733** | **85.7%** | **81.6%** | **0.8359** | **0.9710** |
-
-**Business Translation:** XGBoost at AUC 0.9733 means:
-- We identify **85.7% of churners** before they leave (353 out of 413)
-- **81.6% of churn alerts** are correct — low false alarm rate
-- Only **81 non-churners** incorrectly flagged as at-risk
+| Page | Audience | Content |
+|------|----------|---------|
+| 🏠 Executive Overview | CEO / CMO | KPIs, revenue at risk, top 15 priority customers, churn definition table |
+| 📊 Churn Intelligence | Analytics team | Model cards, CV scores, feature importance, CLV vs risk scatter |
+| 👥 Segment Analysis | Marketing | Behavioral heatmap, risk-value matrix, segment drill-down |
+| 🗺️ Geography & Demographics | Regional / HR | Province churn map, enrollment cohort analysis, education/gender/marital breakdown |
+| 🎯 Retention Actions | Operations | Filtered action table, download CSV for CRM, segment playbooks |
 
 ---
 
-## � Retention Engine Outputs (Stage 7)
+## Key Concepts
 
-For every at-risk customer, the system outputs:
-
-```
-Customer: #652627
-Segment:  Seasonal Travelers
-Risk:     HIGH (99.7% churn probability)
-CLV:      $83,112
-
-Why at risk:
-  - No flights in 4 months
-  - Zero redemptions in 6 months
-  - Declining engagement trend
-
-Recommended Action: Urgent reactivation
-Offer: 8K bonus miles + waived change fees for 60 days
-Channel: SMS + Email + App push
-Timing: Within 48 hours
-Expected Retention Lift: +28%
-Revenue at Risk: $3,444
-Potential Save: $964
-```
+| Term | What It Means |
+|------|--------------|
+| AUC-ROC | Probability the model ranks a real churner above a non-churner (0.5=random, 1.0=perfect) |
+| Recall | % of actual churners the model catches — maximize this for churn prevention |
+| Precision | % of churn alerts that are genuine churners |
+| SMOTE | Creates synthetic churn examples to balance the 84%/16% class split |
+| Data Leakage | Using future data in features — prevented by strict 2017 feature cutoff |
+| Revenue at Risk | `CLV × churn_probability × 0.82` |
+| Potential Save | `Revenue at Risk × 0.27` (27% industry retention lift benchmark) |
+| Silhouette Score | Measures how well each point fits its cluster vs. the nearest other cluster |
 
 ---
 
-## � Dashboard Pages (Stage 8)
+## Submission Checklist
 
-| Page | What You See | Who Uses It |
-|------|-------------|------------|
-| � Executive Overview | KPIs, risk distribution, top at-risk list | CEO/CMO |
-| � Churn Intelligence | Probability distributions, segment breakdown | Analytics team |
-| � Segment Analysis | Behavioral profiles, risk maps | Marketing managers |
-| � Retention Actions | Priority action list, downloadable CSV | Operations team |
-
----
-
-## � Common Issues & Fixes
-
-### "File not found" errors
-```bash
-python resume.py    # Check which stage is missing
-python run_pipeline.py --from 3   # Re-run from Stage 3
-```
-
-### SMOTE import error
-```bash
-pip install imbalanced-learn
-```
-
-### XGBoost not found
-```bash
-pip install xgboost
-```
-
-### Streamlit won't start
-```bash
-pip install streamlit
-streamlit run 08_dashboard.py
-```
-
-### Memory error on large data
-- Edit `06_baseline_models.py` → add `n_jobs=1` to models
-- Reduce sample: `df = df.sample(frac=0.5, random_state=42)`
+- [x] **Working Prototype** → `dashboard.py` (5-page Streamlit at `http://localhost:8501`)
+- [x] **Technical Report** → `outputs/reports/technical_report.txt`
+- [x] **Churn Prediction** → `outputs/models/best_model.pkl` (XGBoost AUC 0.871)
+- [x] **Customer Segmentation** → 4 named behavioral segments
+- [x] **Smart Retention** → `outputs/reports/retention_actions.csv` (who, what, when, channel)
+- [x] **Data Leakage Prevention** → Features = 2017 only, Labels = 2018 only
+- [x] **Geographic Analysis** → Province-level churn rates + revenue at risk
+- [x] **Cohort Analysis** → Enrollment year 2012–2018 churn patterns
+- [x] **Demographic Analysis** → Education, gender, marital status
+- [x] **Cross-Validation** → 5-fold CV AUC alongside test AUC
+- [x] **9 Visualizations** → `outputs/figures/`
 
 ---
 
-## � Technical Report Outline (6-8 pages)
-
-Your report should cover:
-
-1. **Executive Summary** (1 page)
-   - Problem: `$X.XM` revenue at risk from churn
-   - Solution: Behavioral intelligence platform
-   - Key finding: Catch 70% of churners 3 months early
-   - Recommendation: Segment-specific interventions
-
-2. **Churn Definition** (0.5 page)
-   - Combined approach (cancellation OR 12-month inactivity)
-   - Why this definition, temporal validation
-
-3. **Methodology** (1.5 pages)
-   - 30-50 behavioral features (momentum, volatility, trajectory)
-   - XGBoost with temporal validation
-   - Segment-specific analysis
-
-4. **Segmentation Insights** (1 page)
-   - 5-7 named segments with profiles
-   - Revenue contribution per segment
-
-5. **Model Results** (1 page)
-   - AUC, Recall, Precision (business-translated)
-   - Feature importance (top 10 behavioral drivers)
-
-6. **Business Recommendations** (1.5 pages)
-   - Segment-specific retention strategies
-   - Priority actions with expected ROI
-   - Implementation roadmap
-
-7. **Limitations & Next Steps** (0.5 page)
-   - Dataset ends 2018, model needs refresh
-   - A/B test recommendations
-   - Real-time scoring system roadmap
-
----
-
-## � Presentation Strategy
-
-**Lead with business impact, not ML metrics:**
-
-❌ "Our model has AUC of 0.84"
-✅ "We identify 70% of churners 3 months early, potentially saving $X.XM annually"
-
-**Show the dashboard first** — visual impact
-**Walk through 2-3 customer examples** with recommendations
-**Quantify everything** — $ saved, % improvement, ROI
-
----
-
-## � Getting Help
-
-If you're stuck:
-
-1. Run `python resume.py` — shows exactly where you are
-2. Check `logs/` folder for error messages
-3. Each script has detailed error messages built in
-4. Re-run any stage independently — they all load from checkpoints
-
----
-
-*Built with: Python, Pandas, Scikit-learn, XGBoost, Streamlit, Plotly*
-*Dataset: ~16,700 Canadian loyalty members, 2012-2018*
+*Python 3.12 · Pandas · NumPy · Scikit-learn · XGBoost · SMOTE · Streamlit · Plotly*
+*16,737 Canadian airline loyalty members · 2017–2018 activity data*
