@@ -4,22 +4,29 @@
 
 ---
 
-## Quick Start (3 commands)
+## Live Dashboard
+
+**[airline-loyalty-programs-dashboard.streamlit.app](https://airline-loyalty-programs-dashboard.streamlit.app)**
+
+No setup needed — open the link in any browser.
+
+---
+
+## Quick Start (local)
 
 ```bash
-# 1. Install dependencies (first time only)
-venv/bin/pip install pandas numpy scipy matplotlib seaborn plotly \
-  scikit-learn xgboost imbalanced-learn streamlit joblib
+# 1. Install dependencies
+pip install -r requirements.txt
 
 # 2. Run the full pipeline (all 9 stages, ~90 seconds)
-venv/bin/python complete_pipeline.py
+python complete_pipeline.py
 
-# 3. Launch the dashboard
-venv/bin/streamlit run dashboard.py
+# 3. Launch the dashboard locally
+streamlit run dashboard.py
 # Open browser → http://localhost:8501
 
 # Optional: regenerate the technical report
-venv/bin/python generate_technical_report.py
+python generate_technical_report.py
 ```
 
 ---
@@ -159,19 +166,22 @@ airline_behavioral_intelligence/
 
 ## Submission Checklist
 
-- [x] **Working Prototype** → `dashboard.py` (5-page Streamlit at `http://localhost:8501`)
-- [x] **Technical Report** → `outputs/reports/technical_report.txt`
-- [x] **Churn Prediction** → `outputs/models/best_model.pkl` (XGBoost AUC 0.871)
-- [x] **Customer Segmentation** → 4 named behavioral segments
-- [x] **Smart Retention** → `outputs/reports/retention_actions.csv` (who, what, when, channel)
-- [x] **Data Leakage Prevention** → Features = 2017 only, Labels = 2018 only
-- [x] **Geographic Analysis** → Province-level churn rates + revenue at risk
+- [x] **Live Dashboard** → [airline-loyalty-programs-dashboard.streamlit.app](https://airline-loyalty-programs-dashboard.streamlit.app)
+- [x] **Working Prototype** → `dashboard.py` (5-page Streamlit app, publicly deployed)
+- [x] **Technical Report** → `outputs/reports/technical_report.txt` (8 sections, CFO & CMO audience)
+- [x] **Churn Prediction** → XGBoost AUC 0.871, 5-fold CV AUC 0.877, Recall 67.2%
+- [x] **Customer Segmentation** → 4 named behavioral segments (K-Means, silhouette-selected)
+- [x] **Smart Retention** → `outputs/reports/retention_actions.csv` (4,883 customers — who, what, when, channel)
+- [x] **Data Leakage Prevention** → Features = 2017 only, Labels = 2018 only, zero leakage
+- [x] **27 Features** → RFM, activity, engagement, geography, cohort, demographics
+- [x] **Geographic Analysis** → Province-level churn rates (12.7%–24.2%) + revenue at risk
 - [x] **Cohort Analysis** → Enrollment year 2012–2018 churn patterns
-- [x] **Demographic Analysis** → Education, gender, marital status
-- [x] **Cross-Validation** → 5-fold CV AUC alongside test AUC
-- [x] **9 Visualizations** → `outputs/figures/`
+- [x] **Demographic Analysis** → Education, gender, marital status breakdown
+- [x] **Cross-Validation** → 5-fold CV AUC reported alongside test AUC
+- [x] **9 Visualizations** → `outputs/figures/` (geographic, cohort, demographic, models, segments)
+- [x] **GitHub Repository** → [github.com/Arjun-Gangwar1/Airline-Loyalty-Programs](https://github.com/Arjun-Gangwar1/Airline-Loyalty-Programs)
 
 ---
 
-*Python 3.12 · Pandas · NumPy · Scikit-learn · XGBoost · SMOTE · Streamlit · Plotly*
+*Python 3.11 · Pandas · NumPy · Scikit-learn · XGBoost · SMOTE · Streamlit · Plotly*
 *16,737 Canadian airline loyalty members · 2017–2018 activity data*
