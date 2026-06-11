@@ -102,14 +102,18 @@ def load_all():
     if 'potential_save' not in df.columns:
         df['potential_save'] = (df['revenue_at_risk'] * 0.27).round(2)
 
-    # Province — ensure present
-    loyalty_raw = pd.read_csv("data/raw/Customer Loyalty History.csv")
-    loyalty_raw.columns = [c.lower().replace(' ', '_') for c in loyalty_raw.columns]
+    # Province — load from raw file only if not already in segments CSV
     if 'province' not in df.columns:
-        df = df.merge(
-            loyalty_raw[['loyalty_number', 'province']].drop_duplicates(),
-            on='loyalty_number', how='left'
-        )
+        raw_path = Path("data/raw/Customer Loyalty History.csv")
+        if raw_path.exists():
+            loyalty_raw = pd.read_csv(raw_path)
+            loyalty_raw.columns = [c.lower().replace(' ', '_') for c in loyalty_raw.columns]
+            df = df.merge(
+                loyalty_raw[['loyalty_number', 'province']].drop_duplicates(),
+                on='loyalty_number', how='left'
+            )
+        else:
+            df['province'] = 'Unknown'
 
     return df, ret, mc, fi, summary
 
